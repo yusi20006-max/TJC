@@ -1,0 +1,36 @@
+#!/data/data/com.termux/files/usr/bin/sh
+set -eu
+
+SCRIPT_PATH="$0"
+while [ -L "$SCRIPT_PATH" ]; do
+  LINK_TARGET=$(readlink "$SCRIPT_PATH")
+  case "$LINK_TARGET" in
+    /*) SCRIPT_PATH="$LINK_TARGET" ;;
+    *) SCRIPT_PATH="$(dirname "$SCRIPT_PATH")/$LINK_TARGET" ;;
+  esac
+done
+BASE_DIR=$(CDPATH="" cd -- "$(dirname -- "$SCRIPT_PATH")" && pwd)
+
+. "$BASE_DIR/lib/colors.sh"
+. "$BASE_DIR/lib/utils.sh"
+. "$BASE_DIR/lib/output.sh"
+. "$BASE_DIR/lib/config.sh"
+
+COMMAND="${1:-help}"
+
+case "$COMMAND" in
+  help|-h|--help)
+    . "$BASE_DIR/commands/help.sh"
+    tjc_help "$BASE_DIR"
+    ;;
+  version|-v|--version)
+    . "$BASE_DIR/commands/version.sh"
+    tjc_version "$BASE_DIR"
+    ;;
+  *)
+    tjc_error "Unknown command: $COMMAND"
+    . "$BASE_DIR/commands/help.sh"
+    tjc_help "$BASE_DIR"
+    exit 1
+    ;;
+esac
