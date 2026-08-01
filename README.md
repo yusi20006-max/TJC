@@ -1,6 +1,20 @@
-# TJC
+# TJC (Termux Jules CLI)
 
-TJC (Termux Jules CLI) is a shell-based CLI foundation for Google Jules API workflows on Termux and Linux.
+TJC is a secure, POSIX-shell-based CLI platform for Google Jules API workflows, fully compatible with standard Linux and Android via Termux.
+
+---
+
+## Documentation Directory
+
+Explore the complete TJC production manual:
+- **[Installation & Prerequisites Guide](docs/INSTALLATION.md)** — Comprehensive installation and platform troubleshooting.
+- **[Workflow Engine Manual](docs/WORKFLOWS.md)** — Schema declarations, parameters, and reporting details.
+- **[Scheduler System Guide](docs/SCHEDULER.md)** — Running non-daemon cron tasks, schedules, and automatic triggers.
+- **[Plugin & Extension System](docs/PLUGINS.md)** — Guide on writing custom workflow steps and CLI commands.
+- **[Testing & Verification Guide](docs/TESTING.md)** — Custom testing framework, assertions, and linting guidelines.
+- **[Development Manual](docs/DEVELOPMENT.md)** — Architectural standards, coding styles, and developer checks.
+
+---
 
 ## Phase 4 Features
 
@@ -85,8 +99,11 @@ Here are two quick practical scenarios showing how to use TJC's core capabilitie
    ```
 
 ## Installation & Uninstallation
+
+For complete system setup and troubleshooting details, please refer to the **[Installation Guide](docs/INSTALLATION.md)**.
+
 ```sh
-# Install TJC
+# Install TJC with default prefix ($HOME/.local)
 ./install.sh
 
 # Uninstall TJC
