@@ -11,36 +11,46 @@ while [ -L "$SCRIPT_PATH" ]; do
 done
 BASE_DIR=$(CDPATH="" cd -- "$(dirname -- "$SCRIPT_PATH")" && pwd)
 
+# shellcheck disable=SC1091 # Dynamic path resolution at runtime
 . "$BASE_DIR/lib/colors.sh"
+# shellcheck disable=SC1091 # Dynamic path resolution at runtime
 . "$BASE_DIR/lib/utils.sh"
+# shellcheck disable=SC1091 # Dynamic path resolution at runtime
 . "$BASE_DIR/lib/output.sh"
+# shellcheck disable=SC1091 # Dynamic path resolution at runtime
 . "$BASE_DIR/lib/config.sh"
 
+# shellcheck disable=SC1091 # Dynamic path resolution at runtime
 . "$BASE_DIR/lib/logger.sh"
 
 COMMAND="${1:-help}"
 
 case "$COMMAND" in
   help|-h|--help)
+    # shellcheck disable=SC1091 # Dynamic path resolution at runtime
     . "$BASE_DIR/commands/help.sh"
     tjc_help "$BASE_DIR"
     ;;
   version|-v|--version)
+    # shellcheck disable=SC1091 # Dynamic path resolution at runtime
     . "$BASE_DIR/commands/version.sh"
     tjc_version "$BASE_DIR"
     ;;
   workflow)
+    # shellcheck disable=SC1091 # Dynamic path resolution at runtime
     . "$BASE_DIR/commands/workflow.sh"
     if [ "$#" -gt 0 ]; then shift; fi
     tjc_workflow "$@"
     ;;
   schedule)
+    # shellcheck disable=SC1091 # Dynamic path resolution at runtime
     . "$BASE_DIR/commands/schedule.sh"
     if [ "$#" -gt 0 ]; then shift; fi
     tjc_schedule "$@"
     ;;
   *)
     tjc_error "Unknown command: $COMMAND"
+    # shellcheck disable=SC1091 # Dynamic path resolution at runtime
     . "$BASE_DIR/commands/help.sh"
     tjc_help "$BASE_DIR"
     exit 1

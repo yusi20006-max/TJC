@@ -70,3 +70,57 @@ Workflows go through several lifecycle states:
 
 If any workflow step fails, execution halts safely, updating reports and cancelling subsequent steps immediately.
 Reports are stored as structured JSON files under `~/.config/tjc/workflows/reports/`.
+
+## Real-world Automation Scenarios
+
+Here are some complete, practical examples of how to combine step types for common developer workflows.
+
+### Scenario A: Continuous Review of Incoming PRs
+
+In this scenario, we perform a doctor check to verify local CLI tools, initiate a secure Jules session, and fetch details for a specific Pull Request. This is typical for pre-flight or CI-based automated reviews.
+
+Create a file named `pr-review-workflow.yml`:
+
+```yaml
+name: "CI Pull Request Pre-flight Review"
+description: "Checks dependencies, logs a new Jules session, and retrieves GitHub PR #17"
+steps:
+  - type: doctor
+  - type: create_session
+    session_name: "pr_17_check"
+  - type: watch_session
+  - type: list_activities
+  - type: get_pr
+    pr_number: 17
+```
+
+**To execute:**
+```sh
+tjc workflow run pr-review-workflow.yml
+```
+
+### Scenario B: Scheduled Daily System Verification
+
+In this scenario, we run a system health check and list recent Google Jules activity streams to monitor automated background tasks.
+
+Create a file named `daily-check.json`:
+
+```json
+{
+  "name": "Daily System Verification",
+  "description": "Verifies tools and audits the Google Jules activity log",
+  "steps": [
+    {
+      "type": "doctor"
+    },
+    {
+      "type": "list_activities"
+    }
+  ]
+}
+```
+
+**To execute:**
+```sh
+tjc workflow run daily-check.json
+```

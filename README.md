@@ -48,6 +48,42 @@ For full documentation and integration guides, see [docs/SCHEDULER.md](docs/SCHE
 - `tjc help`: Display help information.
 - `tjc version`: Display version information.
 
+## Quick Start Scenarios
+
+Here are two quick practical scenarios showing how to use TJC's core capabilities.
+
+### Scenario 1: Running a One-off Dependency and PR Audit
+1. Create a `dev-audit.yml` file:
+   ```yaml
+   name: "Developer Audit"
+   steps:
+     - type: doctor
+     - type: get_pr
+       pr_number: 16
+   ```
+2. Run the audit workflow via CLI:
+   ```sh
+   tjc workflow run dev-audit.yml
+   ```
+3. View the generated JSON report:
+   ```sh
+   tjc workflow list
+   ```
+
+### Scenario 2: Registering and Manually Triggering a Scheduled Task
+1. Register a task to check dependencies hourly:
+   ```sh
+   tjc schedule add hourly_doctor dev-audit.yml hourly
+   ```
+2. Manually execute the scheduled task immediately:
+   ```sh
+   tjc schedule run hourly_doctor
+   ```
+3. Check the execution logs of the schedule:
+   ```sh
+   tjc schedule history hourly_doctor
+   ```
+
 ## Installation & Uninstallation
 ```sh
 # Install TJC
