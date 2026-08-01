@@ -16,6 +16,8 @@ BASE_DIR=$(CDPATH="" cd -- "$(dirname -- "$SCRIPT_PATH")" && pwd)
 . "$BASE_DIR/lib/output.sh"
 . "$BASE_DIR/lib/config.sh"
 
+. "$BASE_DIR/lib/logger.sh"
+
 COMMAND="${1:-help}"
 
 case "$COMMAND" in
@@ -26,6 +28,16 @@ case "$COMMAND" in
   version|-v|--version)
     . "$BASE_DIR/commands/version.sh"
     tjc_version "$BASE_DIR"
+    ;;
+  workflow)
+    . "$BASE_DIR/commands/workflow.sh"
+    if [ "$#" -gt 0 ]; then shift; fi
+    tjc_workflow "$@"
+    ;;
+  schedule)
+    . "$BASE_DIR/commands/schedule.sh"
+    if [ "$#" -gt 0 ]; then shift; fi
+    tjc_schedule "$@"
     ;;
   *)
     tjc_error "Unknown command: $COMMAND"
