@@ -61,6 +61,18 @@ tjc_workflow() {
         return 1
       fi
 
+      # Prevent command injection in report file path input
+      if echo "$RFILE" | grep -Eq '[;&|`$]'; then
+        tjc_error "Security alert: Unsafe characters detected in report file path."
+        return 1
+      fi
+
+      # Prevent directory traversal in report file path input
+      if echo "$RFILE" | grep -q '\.\.'; then
+        tjc_error "Security alert: Directory traversal detected in report file path."
+        return 1
+      fi
+
       # Allow passing just filename under the reports directory or absolute path
       REPORTS_DIR="$(tjc_config_dir)/workflows/reports"
       FULL_PATH=""

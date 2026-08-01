@@ -26,6 +26,7 @@ tjc_workflow_get_description() {
     return 1
   fi
   yq -r '.description // ""' "$FILE" 2>/dev/null
+  return 0
 }
 
 # Public function: tjc_workflow_get_steps_count
@@ -39,6 +40,7 @@ tjc_workflow_get_steps_count() {
     return 1
   fi
   yq '.steps | length' "$FILE" 2>/dev/null || printf '0\n'
+  return 0
 }
 
 # Public function: tjc_workflow_get_step_type
@@ -52,6 +54,7 @@ tjc_workflow_get_step_type() {
     return 1
   fi
   yq -r ".steps[$INDEX].type // \"\"" "$FILE" 2>/dev/null
+  return 0
 }
 
 # Public function: tjc_workflow_get_step_params
@@ -65,4 +68,5 @@ tjc_workflow_get_step_params() {
     return 1
   fi
   yq -c ".steps[$INDEX] // {}" "$FILE" 2>/dev/null
+  return 0
 }

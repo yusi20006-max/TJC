@@ -198,6 +198,18 @@ STATUS=$?
 set -e
 assert_failure "$STATUS" "Shell injection in workflow path is strictly rejected"
 
+set +e
+tjc_workflow show "; rm -rf /"
+STATUS_SHOW_INJ=$?
+set -e
+assert_failure "$STATUS_SHOW_INJ" "Shell injection in show report path is strictly rejected"
+
+set +e
+tjc_workflow show "../../some_other_file"
+STATUS_SHOW_TRAV=$?
+set -e
+assert_failure "$STATUS_SHOW_TRAV" "Directory traversal in show report path is strictly rejected"
+
 # Test Scenario 6: Logger behavior
 echo "--- Scenario 6: Logger behavior verification ---"
 LOG_FILE="${TJC_CONFIG_DIR}/logs/tjc.log"

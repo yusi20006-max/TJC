@@ -10,6 +10,7 @@
 tjc_scheduler_dir() {
   CONFIG_DIR=$(tjc_config_dir)
   printf '%s/schedules\n' "$CONFIG_DIR"
+  return 0
 }
 
 # Public function: tjc_scheduler_history_dir
@@ -19,6 +20,7 @@ tjc_scheduler_dir() {
 tjc_scheduler_history_dir() {
   DIR=$(tjc_scheduler_dir)
   printf '%s/history\n' "$DIR"
+  return 0
 }
 
 # Public function: tjc_scheduler_init_dir
