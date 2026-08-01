@@ -28,16 +28,23 @@ tjc_scheduler_history_dir() {
 # Description: Ensures the schedule and history storage directories exist.
 # Returns: Exit code 0.
 tjc_scheduler_init_dir() {
+  # shellcheck disable=SC3043 # local is supported by all target POSIX shells in Termux and standard Linux
+  local SCHED_DIR HIST_DIR
+  # Ensure base config dir exists with secure permissions (chmod 700)
+  tjc_ensure_config_dir
+
   SCHED_DIR=$(tjc_scheduler_dir)
   HIST_DIR=$(tjc_scheduler_history_dir)
 
   if [ ! -d "$SCHED_DIR" ]; then
     mkdir -p "$SCHED_DIR"
   fi
+  chmod 700 "$SCHED_DIR"
 
   if [ ! -d "$HIST_DIR" ]; then
     mkdir -p "$HIST_DIR"
   fi
+  chmod 700 "$HIST_DIR"
   return 0
 }
 
@@ -109,6 +116,7 @@ tjc_scheduler_add() {
     --arg expr "$SCHEDULE_EXPR" \
     --arg created "$CREATED_AT" \
     '{id: $id, workflow_file: $wf, schedule_expression: $expr, created_at: $created, last_run: null, last_status: null}' > "$JOB_FILE"
+  chmod 600 "$JOB_FILE"
 
   tjc_success "Schedule '$ID' added successfully."
   return 0

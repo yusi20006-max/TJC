@@ -19,6 +19,13 @@
 #              Updates report states (PENDING, RUNNING, COMPLETED, FAILED, CANCELLED).
 # Returns: Exit code 0 on success, non-zero on failure.
 tjc_workflow_execute() {
+  # shellcheck disable=SC3043 # local is supported by all target POSIX shells in Termux and standard Linux
+  local WORKFLOW_FILE WORKFLOW_NAME STEPS_COUNT REPORTS_DIR STARTED_AT REPORT_FILE
+  # shellcheck disable=SC3043 # local is supported by all target POSIX shells in Termux and standard Linux
+  local FINAL_STATUS INDEX STEP_TYPE STEP_PARAMS STEP_STARTED STEP_OUTPUT STEP_STATUS
+  # shellcheck disable=SC3043 # local is supported by all target POSIX shells in Termux and standard Linux
+  local STEP_ENDED TEMP_REPORT ENDED_AT
+
   WORKFLOW_FILE="$1"
 
   if [ -z "$WORKFLOW_FILE" ]; then
@@ -39,10 +46,12 @@ tjc_workflow_execute() {
   STEPS_COUNT=$(tjc_workflow_get_steps_count "$WORKFLOW_FILE")
 
   # Prepare report directory and JSON template
+  tjc_ensure_config_dir
   REPORTS_DIR="$(tjc_config_dir)/workflows/reports"
   if [ ! -d "$REPORTS_DIR" ]; then
     mkdir -p "$REPORTS_DIR"
   fi
+  chmod 700 "$REPORTS_DIR"
 
   STARTED_AT=$(date +'%Y-%m-%d %H:%M:%S')
   REPORT_FILE="${REPORTS_DIR}/report_$(date +%Y%m%d_%H%M%S)_$$.json"
@@ -56,6 +65,7 @@ tjc_workflow_execute() {
     --arg file "$WORKFLOW_FILE" \
     --arg started "$STARTED_AT" \
     '{workflow: $name, file: $file, status: "RUNNING", started_at: $started, ended_at: null, steps: []}' > "$REPORT_FILE"
+  chmod 600 "$REPORT_FILE"
 
   INDEX=0
   while [ "$INDEX" -lt "$STEPS_COUNT" ]; do

@@ -17,15 +17,22 @@ tjc_log_file() {
 # Description: Initializes log directory and file, setting secure permissions (chmod 600).
 # Returns: Exit code 0 on success.
 tjc_log_init() {
+  # shellcheck disable=SC3043 # local is supported by all target POSIX shells in Termux and standard Linux
+  local LOG_FILE LOG_DIR
+  # Ensure base config dir exists with secure permissions (chmod 700)
+  tjc_ensure_config_dir
+
   LOG_FILE=$(tjc_log_file)
   LOG_DIR=$(dirname "$LOG_FILE")
   if [ ! -d "$LOG_DIR" ]; then
     mkdir -p "$LOG_DIR"
   fi
+  chmod 700 "$LOG_DIR"
+
   if [ ! -f "$LOG_FILE" ]; then
     touch "$LOG_FILE"
-    chmod 600 "$LOG_FILE"
   fi
+  chmod 600 "$LOG_FILE"
   return 0
 }
 

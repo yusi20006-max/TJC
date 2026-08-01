@@ -15,6 +15,21 @@ tjc_config_dir() {
   return 0
 }
 
+# Public function: tjc_ensure_config_dir
+# Usage: tjc_ensure_config_dir
+# Description: Ensures that the standard config directory exists with secure permissions (chmod 700).
+# Returns: Exit code 0.
+tjc_ensure_config_dir() {
+  # shellcheck disable=SC3043 # local is supported by all target POSIX shells in Termux and standard Linux
+  local DIR
+  DIR=$(tjc_config_dir)
+  if [ ! -d "$DIR" ]; then
+    mkdir -p "$DIR"
+  fi
+  chmod 700 "$DIR"
+  return 0
+}
+
 # Public function: tjc_default_config_template
 # Usage: tjc_default_config_template <base_dir>
 # Description: Returns the file path to the default configuration template.

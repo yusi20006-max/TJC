@@ -2,6 +2,8 @@
 
 The TJC Workflow Engine allows you to chain multiple automation steps into a single executable definition. Workflows are defined in valid YAML or JSON files and are validated strictly before execution to prevent unsafe commands.
 
+For details on extending workflows with custom steps, see **[Plugin System](PLUGINS.md)**. For details on validating workflows, see **[Testing & Verification Guide](TESTING.md)**.
+
 ## Allowed Step Types
 
 To protect the system and prevent arbitrary shell injection, only the following step types are allowed:
