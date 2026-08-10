@@ -1,0 +1,15 @@
+name: test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update
+      - run: sudo apt-get install -y shellcheck yq
+      - run: sh test/run_all.sh
+      - run: shellcheck jules install.sh uninstall.sh lib/*.sh commands/*.sh workflow/*.sh scheduler/*.sh job/*.sh queue/*.sh mcp/*.sh policy/*.sh providers/*.sh plugin/*.sh test/*.sh
