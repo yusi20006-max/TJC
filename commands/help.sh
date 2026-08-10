@@ -3,9 +3,6 @@
 # TJC Help Command
 # Displays help menu and usage instructions for all standard TJC commands.
 
-# Public function: tjc_help
-# Usage: tjc_help <base_dir>
-# Description: Displays commands, descriptions, and syntax guides.
 tjc_help() {
   printf 'TJC (Termux Jules CLI)\n\n'
   printf 'Usage:\n'
@@ -13,6 +10,13 @@ tjc_help() {
   printf 'Core Commands:\n'
   printf '  help, -h, --help                 Display this help menu\n'
   printf '  version, -v, --version           Display version information\n\n'
+  printf 'Job System Commands:\n'
+  printf '  job create <id> [description]    Create a persistent Job\n'
+  printf '  job list                         List stored Jobs\n'
+  printf '  job show <id>                    Display a Job record\n'
+  printf '  job status <id>                  Display Job status\n'
+  printf '  job cancel <id>                  Cancel an active Job\n'
+  printf '  job retry <id>                   Retry a failed Job\n\n'
   printf 'Workflow Engine Commands:\n'
   printf '  workflow run <file.yml>          Execute a workflow defined in a YAML/JSON file\n'
   printf '  workflow list                    List summary records of workflow executions\n'
