@@ -3,6 +3,8 @@
 # TJC Workflow Command Handler v2
 # shellcheck disable=SC1091
 . "${BASE_DIR}/workflow/engine.sh"
+# shellcheck disable=SC1091
+. "${BASE_DIR}/policy/policy.sh"
 
 tjc_workflow() {
   ACTION="${1:-}"
@@ -10,16 +12,19 @@ tjc_workflow() {
     validate)
       FILE="${2:-}"
       [ -n "$FILE" ] || { tjc_error 'Usage: tjc workflow validate <workflow_file>'; return 1; }
+      tjc_policy_require workflow.validate || return 1
       tjc_workflow_validate "$FILE" && tjc_success "Workflow is valid: $FILE"
       ;;
     run)
       FILE="${2:-}"
       [ -n "$FILE" ] || { tjc_error 'Usage: tjc workflow run <workflow_file.yml>'; return 1; }
+      tjc_policy_require workflow.run || return 1
       tjc_workflow_execute "$FILE"
       ;;
     resume)
       REPORT="${2:-}"
       [ -n "$REPORT" ] || { tjc_error 'Usage: tjc workflow resume <report_file.json>'; return 1; }
+      tjc_policy_require workflow.run || return 1
       case "$REPORT" in *..*|*';'*|*'&'*|*'|'*|*'`'*|*'$'*) tjc_error 'Unsafe report path.'; return 1;; esac
       [ -f "$REPORT" ] || { tjc_error "Report not found: $REPORT"; return 1; }
       FILE=$(jq -r '.file // ""' "$REPORT")
