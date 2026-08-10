@@ -11,7 +11,9 @@ TJC_JOB_FAILED="FAILED"
 TJC_JOB_CANCELLED="CANCELLED"
 TJC_JOB_RETRYING="RETRYING"
 
-tjc_job_dir() {
+TJC_JOB_LOCK_TIMEOUT="${TJC_JOB_LOCK_TIMEOUT:-5}"
+
+ tjc_job_dir() {
   if command -v tjc_config_dir >/dev/null 2>&1; then
     printf '%s/jobs\n' "$(tjc_config_dir)"
   else
@@ -49,20 +51,50 @@ tjc_job_lock() {
   tjc_job_ensure_dir || return 1
   LOCK="$(tjc_job_dir)/.locks/$ID.lock"
   ATTEMPT=0
+
   while ! mkdir "$LOCK" 2>/dev/null; do
+    # Recover a lock left by a process that is no longer alive. The lock
+    # directory is never removed merely because it is old: ownership is
+    # checked through the recorded PID first.
+    if [ -f "$LOCK/pid" ]; then
+      OWNER_PID=$(cat "$LOCK/pid" 2>/dev/null || true)
+      case "$OWNER_PID" in
+        ''|*[!0-9]*) ;;
+        *)
+          if ! kill -0 "$OWNER_PID" 2>/dev/null; then
+            rm -f "$LOCK/pid"
+            rmdir "$LOCK" 2>/dev/null || true
+            continue
+          fi
+          ;;
+      esac
+    fi
+
     ATTEMPT=$((ATTEMPT + 1))
-    if [ "$ATTEMPT" -ge 50 ]; then
+    if [ "$ATTEMPT" -ge "$TJC_JOB_LOCK_TIMEOUT" ]; then
       echo "Timed out waiting for Job lock '$ID'." >&2
       return 1
     fi
-    sleep 0.1
+    sleep 1
   done
+
+  # mkdir is atomic on the local filesystem; write ownership metadata only
+  # after the lock directory has been acquired.
+  printf '%s\n' "$$" > "$LOCK/pid" || {
+    rm -f "$LOCK/pid"
+    rmdir "$LOCK" 2>/dev/null || true
+    return 1
+  }
   printf '%s\n' "$LOCK"
 }
 
 tjc_job_unlock() {
   LOCK="$1"
-  rmdir "$LOCK" 2>/dev/null || true
+  OWNER_PID=$(cat "$LOCK/pid" 2>/dev/null || true)
+  if [ -z "$OWNER_PID" ] || [ "$OWNER_PID" = "$$" ]; then
+    rm -f "$LOCK/pid"
+    rmdir "$LOCK" 2>/dev/null || true
+  fi
 }
 
 tjc_job_write_atomic() {
