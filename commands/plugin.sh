@@ -7,16 +7,29 @@ tjc_plugin_command() {
   case "$ACTION" in
     list) tjc_plugin_list ;;
     show)
-      NAME="${2:-}"; [ -n "$NAME" ] || { tjc_error 'Usage: tjc plugin show <name>'; return 1; }
-      tjc_plugin_show "$NAME" ;;
+      NAME="${2:-}"
+      if [ -z "$NAME" ]; then
+        tjc_error 'Usage: tjc plugin show <name>'
+        return 1
+      fi
+      tjc_plugin_show "$NAME"
+      ;;
     install)
-      SRC="${2:-}"; [ -n "$SRC" ] || { tjc_error 'Usage: tjc plugin install <directory>'; return 1; }
-      tjc_plugin_install_local "$SRC" ;
+      SRC="${2:-}"
+      if [ -z "$SRC" ]; then
+        tjc_error 'Usage: tjc plugin install <directory>'
+        return 1
+      fi
+      tjc_plugin_install_local "$SRC"
       ;;
     run)
-      NAME="${2:-}"; [ -n "$NAME" ] || { tjc_error 'Usage: tjc plugin run <name> [args...]'; return 1; }
+      NAME="${2:-}"
+      if [ -z "$NAME" ]; then
+        tjc_error 'Usage: tjc plugin run <name> [args...]'
+        return 1
+      fi
       shift 2
-      tjc_plugin_run "$NAME" "$@" ;
+      tjc_plugin_run "$NAME" "$@"
       ;;
     *)
       tjc_error 'Usage: tjc plugin [list|show <name>|install <directory>|run <name> [args...]]'
