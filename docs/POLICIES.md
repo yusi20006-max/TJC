@@ -4,20 +4,11 @@ TJC v2 provides a central authorization layer for local CLI operations and exter
 
 ## Policy File
 
-The default policy is stored at:
-
-`~/.config/tjc/policy.yml`
-
-Initialize or inspect it with:
+The default policy is stored at `~/.config/tjc/policy.yml`.
 
 ```sh
 tjc policy init
 tjc policy show
-```
-
-Check an operation:
-
-```sh
 tjc policy check workflow.run
 tjc policy check mcp.execute
 ```
@@ -47,30 +38,21 @@ Exact operation entries override the default. Unknown operations are denied.
 
 ## Security Boundary
 
-The Policy Engine is intentionally independent from providers and transport layers.
+The Policy Engine is independent from providers and transport layers. Sensitive external-agent capabilities default to deny, especially MCP execution, plugin execution, and filesystem writes.
 
-The most sensitive external-agent capabilities default to deny, especially:
-
-- `mcp.execute`
-- `plugin.execute`
-- `filesystem.write`
-
-Local TJC workflow/job/queue operations retain explicit allow entries so v1/v2 local behavior remains usable.
+Local CLI operations have explicit allow entries so existing TJC workflows, Jobs, and queues remain usable.
 
 ## Integration
 
-The policy layer is enforced at command boundaries. MCP execution is additionally gated by policy before the MCP server is started.
+Policy checks occur before execution. The MCP command translates the central policy decision into the MCP server execution boundary; an environment variable cannot override a policy denial.
 
-Policy checks must occur before an operation starts, not after the operation has already acquired external resources.
+## Rules
 
-## Security Rules
-
-- Never treat an environment variable as an authorization override when policy denies an operation.
-- Never allow a plugin or workflow to modify the policy file during its own execution.
-- Keep provider credentials outside policy files.
+- Never allow a workflow or plugin to modify the policy file during its own execution.
+- Never store credentials in policy files.
 - Validate the policy file before use.
 - Deny unknown operations by default.
 
 ## Testing
 
-Policy tests must cover allow, deny, malformed policy, missing policy, exact-operation precedence, and integration with workflow/queue/MCP boundaries.
+Policy tests cover restrictive defaults, explicit allow entries, explicit deny entries, and unknown operations.
