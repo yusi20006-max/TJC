@@ -9,7 +9,6 @@ tjc_plugin_command() {
     show)
       NAME="${2:-}"; [ -n "$NAME" ] || { tjc_error 'Usage: tjc plugin show <name>'; return 1; }
       tjc_plugin_show "$NAME" ;;
-      ;;
     install)
       SRC="${2:-}"; [ -n "$SRC" ] || { tjc_error 'Usage: tjc plugin install <directory>'; return 1; }
       tjc_plugin_install_local "$SRC" ;
