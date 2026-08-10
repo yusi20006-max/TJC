@@ -1,128 +1,180 @@
-# TJC Workflow Engine
+# TJC Workflow Engine v2
 
-The TJC Workflow Engine allows you to chain multiple automation steps into a single executable definition. Workflows are defined in valid YAML or JSON files and are validated strictly before execution to prevent unsafe commands.
+TJC workflows are declarative YAML/JSON execution plans. The engine validates the definition before execution, runs only approved built-in step types, persists structured reports, supports dependency-aware execution, conditions, retries, timeouts, variables, and resume, and can associate an execution with the TJC Job System.
 
-For details on extending workflows with custom steps, see **[Plugin System](PLUGINS.md)**. For details on validating workflows, see **[Testing & Verification Guide](TESTING.md)**.
+## Safety Model
+
+Workflow definitions never execute arbitrary shell commands. Step types and their parameters are allow-listed by `workflow/validator.sh`. Workflow paths, identifiers, dependency references, retry counts, and timeout values are validated before execution.
+
+Secrets must not be placed in workflow variables, step output, or descriptions.
 
 ## Allowed Step Types
 
-To protect the system and prevent arbitrary shell injection, only the following step types are allowed:
+- `doctor` — verifies required local tools.
+- `create_session` — creates the current local session record.
+- `watch_session` — watches the selected session record.
+- `list_activities` — retrieves the supported activity representation.
+- `get_pr` — retrieves a GitHub issue/PR record using a positive PR number.
 
-1. **`doctor`**: Verifies local environment and dependencies (`jq`, `yq`, `shellcheck`).
-2. **`create_session`**: Creates a new session with Google Jules.
-   - Parameters:
-     - `session_name` (optional): Alphanumeric identifier for the session.
-3. **`watch_session`**: Watches the progress of a session.
-   - Parameters:
-     - `session_id` (optional): Alphanumeric identifier of the session to watch. Defaults to the last created session.
-4. **`list_activities`**: Lists recent Jules activity stream.
-5. **`get_pr`**: Retrieves pull request information from GitHub.
-   - Parameters:
-     - `pr_number` (required): Positive integer.
-
-## Workflow Schema Example
-
-Workflows contain a `name`, optional `description`, and a list of `steps`.
-
-### Example: `my-workflow.yml`
+## Basic Schema
 
 ```yaml
-name: "Daily Sync and Review"
-description: "Executes a system health doctor check, creates a session, and retrieves PR info"
+name: "Daily Review"
+description: "Run a health check and inspect a PR"
+variables:
+  environment: production
 steps:
   - type: doctor
-  - type: create_session
-    session_name: "morning_sync"
-  - type: watch_session
-  - type: list_activities
   - type: get_pr
-    pr_number: 16
+    pr_number: 23
 ```
 
-## Running Workflows via CLI
+`variables` is optional and is a mapping of simple values. It is intended for declarative conditions, not arbitrary code execution.
 
-Workflows can be managed and executed using the following commands:
+## Dependencies
 
-### 1. Run a Workflow
-Execute a workflow definition:
+A step may declare `depends_on` using zero-based step indexes:
+
+```yaml
+steps:
+  - type: doctor
+  - type: get_pr
+    pr_number: 23
+    depends_on: [0]
+  - type: list_activities
+    depends_on: [1]
+```
+
+Dependencies must refer to existing steps. Cycles are rejected during validation. A normal `on_success` step runs only after all dependencies complete successfully.
+
+## Conditions
+
+The condition language is deliberately small and does not evaluate shell expressions.
+
+Supported values:
+
+- `on_success` — default; requires dependencies to complete.
+- `always` — run regardless of dependency status.
+- `on_failure` — run when at least one dependency failed.
+- `var:<key>=<value>` — run when a workflow variable exactly matches the requested value.
+
+Example:
+
+```yaml
+variables:
+  environment: production
+steps:
+  - type: doctor
+  - type: list_activities
+    depends_on: [0]
+    condition: "var:environment=production"
+```
+
+## Retry Policy
+
+Steps can request a bounded retry count:
+
+```yaml
+steps:
+  - type: get_pr
+    pr_number: 23
+    retry:
+      attempts: 3
+```
+
+The value means additional attempts after the first attempt. Validation limits this to 10 retries.
+
+## Timeout Policy
+
+A step may specify a wall-clock timeout:
+
+```yaml
+steps:
+  - type: get_pr
+    pr_number: 23
+    timeout:
+      seconds: 30
+```
+
+Timeouts are bounded to 86400 seconds. The engine terminates the child process when the limit is reached and records the timeout as a failed attempt.
+
+## Resume
+
+Every execution produces a JSON report under:
+
+`~/.config/tjc/workflows/reports/`
+
+A failed execution can be resumed from its report:
+
+```sh
+tjc workflow resume report_20260810T100000Z_1234.json
+```
+
+The original workflow path must still exist and match the report. Completed steps are preserved and execution continues from the first unfinished step.
+
+## CLI
+
+Validate without executing:
+
+```sh
+tjc workflow validate my-workflow.yml
+```
+
+Run:
+
 ```sh
 tjc workflow run my-workflow.yml
 ```
 
-### 2. List Execution Reports
-Display a summary history of all workflow executions:
+List reports:
+
 ```sh
 tjc workflow list
 ```
 
-### 3. Show Detailed Execution Report
-Review step-by-step statuses, execution times, and step outputs:
+Inspect a report:
+
 ```sh
-tjc workflow show report_20260801_120000_12345.json
+tjc workflow show report_20260810T100000Z_1234.json
 ```
 
-## States and Reporting
+Resume:
 
-Workflows go through several lifecycle states:
-- **`PENDING`**: Steps not yet started.
-- **`RUNNING`**: Active step.
-- **`COMPLETED`**: Successfully executed step or workflow.
-- **`FAILED`**: Failed step or workflow.
-- **`CANCELLED`**: Cancelled steps (occurs to downstream steps when an upstream step fails).
-
-If any workflow step fails, execution halts safely, updating reports and cancelling subsequent steps immediately.
-Reports are stored as structured JSON files under `~/.config/tjc/workflows/reports/`.
-
-## Real-world Automation Scenarios
-
-Here are some complete, practical examples of how to combine step types for common developer workflows.
-
-### Scenario A: Continuous Review of Incoming PRs
-
-In this scenario, we perform a doctor check to verify local CLI tools, initiate a secure Jules session, and fetch details for a specific Pull Request. This is typical for pre-flight or CI-based automated reviews.
-
-Create a file named `pr-review-workflow.yml`:
-
-```yaml
-name: "CI Pull Request Pre-flight Review"
-description: "Checks dependencies, logs a new Jules session, and retrieves GitHub PR #17"
-steps:
-  - type: doctor
-  - type: create_session
-    session_name: "pr_17_check"
-  - type: watch_session
-  - type: list_activities
-  - type: get_pr
-    pr_number: 17
-```
-
-**To execute:**
 ```sh
-tjc workflow run pr-review-workflow.yml
+tjc workflow resume report_20260810T100000Z_1234.json
 ```
 
-### Scenario B: Scheduled Daily System Verification
+## Reporting
 
-In this scenario, we run a system health check and list recent Google Jules activity streams to monitor automated background tasks.
+Reports contain:
 
-Create a file named `daily-check.json`:
+- workflow identity
+- source file
+- overall status
+- start/end timestamps
+- resume source
+- every step's type
+- step status
+- attempt count
+- start/end timestamps
+- output
+- error information
 
-```json
-{
-  "name": "Daily System Verification",
-  "description": "Verifies tools and audits the Google Jules activity log",
-  "steps": [
-    {
-      "type": "doctor"
-    },
-    {
-      "type": "list_activities"
-    }
-  ]
-}
-```
+Workflow executions may also create a Job record. Job records are the long-running operation abstraction used by later TJC v2 components.
 
-**To execute:**
-```sh
-tjc workflow run daily-check.json
-```
+## Compatibility
+
+The v2 engine remains POSIX-shell based and is intended for Termux and standard Linux. It does not require a permanent daemon or root privileges.
+
+## Development Rules
+
+When adding a new step type:
+
+1. Add the implementation to the controlled step dispatcher.
+2. Add its exact parameter allow-list to the validator.
+3. Add parser coverage if required.
+4. Add success/failure/security tests.
+5. Update this document.
+6. Run the complete test suite and ShellCheck.
+
+Never add a generic `shell`, `exec`, `eval`, or user-controlled command step to bypass the safety boundary.
