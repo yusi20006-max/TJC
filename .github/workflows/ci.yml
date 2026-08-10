@@ -17,6 +17,7 @@ jobs:
 
       - name: Install test dependencies
         run: |
+          set -e
           sudo apt-get update
           sudo apt-get install -y shellcheck jq
 
@@ -33,24 +34,13 @@ jobs:
       - name: Test suite
         run: |
           set -e
-          if [ -x test/run_tests.sh ]; then
-            ./test/run_tests.sh
-          else
-            echo 'test/run_tests.sh is missing or not executable' >&2
-            exit 1
-          fi
+          bash test/run_tests.sh
 
-      - name: Workflow and scheduler regression tests
+      - name: Required regression test presence
         run: |
           set -e
-          for test_file in test/test_workflows.sh test/test_scheduler.sh; do
-            if [ -f "$test_file" ]; then
-              bash "$test_file"
-            else
-              echo "Missing required regression test: $test_file" >&2
-              exit 1
-            fi
-          done
+          test -f test/test_workflows.sh
+          test -f test/test_scheduler.sh
 
       - name: Installer smoke test
         run: |
