@@ -9,6 +9,8 @@ TJC is a secure, POSIX-shell-based CLI platform for Google Jules API workflows, 
 - **[Installation Guide](docs/INSTALLATION.md)**
 - **[Workflow Engine](docs/WORKFLOWS.md)**
 - **[Job System](docs/JOBS.md)**
+- **[Queue and Workers](docs/QUEUE.md)**
+- **[Provider Architecture](docs/PROVIDERS.md)**
 - **[Scheduler System](docs/SCHEDULER.md)**
 - **[Plugin System](docs/PLUGINS.md)**
 - **[Testing Guide](docs/TESTING.md)**
@@ -17,8 +19,6 @@ TJC is a secure, POSIX-shell-based CLI platform for Google Jules API workflows, 
 ---
 
 ## TJC v2 Architecture
-
-TJC v2 introduces a unified execution model:
 
 ```text
 CLI
@@ -29,7 +29,7 @@ CLI
  |     |
  |     +-- Workflow Engine
  |     +-- Scheduler
- |     +-- Future Queue / Workers
+ |     +-- Queue / Workers
  |
  +-- Provider Layer
  |     |
@@ -39,44 +39,13 @@ CLI
  +-- Future MCP / Policy / Observability layers
 ```
 
-The Job System provides persistent lifecycle tracking for long-running operations. The Workflow Engine uses it as the execution abstraction while retaining the safe v1 step boundary.
+The Job System provides persistent lifecycle tracking for long-running operations. The Workflow Engine uses it as the execution abstraction. The Queue provides bounded parallel workers for independent workflow Jobs. Provider-specific HTTP behavior is isolated behind the Provider Layer.
 
 ## Workflow Engine v2
 
 Workflows are declarative YAML/JSON definitions. They are validated before execution and never expose a generic shell execution primitive.
 
-Supported v2 capabilities include:
-
-- dependency-aware steps
-- conditional execution
-- bounded retries
-- bounded timeouts
-- workflow variables
-- structured execution reports
-- resume from a previous report
-- Job System integration
-
-Example:
-
-```yaml
-name: "Production Review"
-variables:
-  environment: production
-steps:
-  - type: doctor
-  - type: list_activities
-    depends_on: [0]
-    condition: "var:environment=production"
-    retry:
-      attempts: 2
-    timeout:
-      seconds: 30
-  - type: get_pr
-    pr_number: 23
-    depends_on: [1]
-```
-
-Commands:
+Supported capabilities include dependency-aware steps, conditions, bounded retries, bounded timeouts, variables, structured reports, resume, and Job integration.
 
 ```sh
 tjc workflow validate workflow.yml
@@ -86,19 +55,9 @@ tjc workflow show report.json
 tjc workflow resume report.json
 ```
 
-See [docs/WORKFLOWS.md](docs/WORKFLOWS.md) for the complete schema and security model.
+See [docs/WORKFLOWS.md](docs/WORKFLOWS.md).
 
 ## Job System
-
-The Job System provides persistent state for long-running operations.
-
-Supported states:
-
-`PENDING` → `QUEUED` → `RUNNING` → `COMPLETED`
-
-with failure, cancellation, and retry paths.
-
-Commands include:
 
 ```sh
 tjc job create <id> [description]
@@ -111,9 +70,43 @@ tjc job retry <id>
 
 See [docs/JOBS.md](docs/JOBS.md).
 
-## Scheduler System
+## Queue and Workers
 
-Persistently configure and run TJC workflows on schedules without requiring a memory-heavy permanent daemon.
+Queue a validated workflow with an optional priority:
+
+```sh
+tjc queue add workflow.yml 100
+```
+
+Inspect or remove queued work:
+
+```sh
+tjc queue list
+tjc queue remove <id>
+```
+
+Run a bounded worker pool:
+
+```sh
+tjc queue run 2
+```
+
+The worker limit is conservative by default and cannot exceed 16.
+
+See [docs/QUEUE.md](docs/QUEUE.md).
+
+## Provider Layer
+
+Jules is the default provider. Provider-specific authentication and HTTP operations are isolated from the Job and Workflow domains.
+
+```sh
+export TJC_PROVIDER=jules
+export JULES_API_KEY='...'
+```
+
+See [docs/PROVIDERS.md](docs/PROVIDERS.md).
+
+## Scheduler System
 
 ```sh
 tjc schedule add <id> <workflow_file.yml> [expr]

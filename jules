@@ -21,6 +21,8 @@ BASE_DIR=$(CDPATH="" cd -- "$(dirname -- "$SCRIPT_PATH")" && pwd)
 . "$BASE_DIR/lib/config.sh"
 # shellcheck disable=SC1091
 . "$BASE_DIR/lib/logger.sh"
+# shellcheck disable=SC1091
+. "$BASE_DIR/lib/provider.sh"
 
 COMMAND="${1:-help}"
 
@@ -47,6 +49,11 @@ case "$COMMAND" in
     . "$BASE_DIR/commands/job.sh"
     if [ "$#" -gt 0 ]; then shift; fi
     tjc_job_command "$@"
+    ;;
+  queue)
+    . "$BASE_DIR/commands/queue.sh"
+    if [ "$#" -gt 0 ]; then shift; fi
+    tjc_queue_command "$@"
     ;;
   *)
     tjc_error "Unknown command: $COMMAND"
