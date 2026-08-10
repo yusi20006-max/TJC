@@ -11,6 +11,7 @@ TJC is a secure, POSIX-shell-based CLI platform for Google Jules API workflows, 
 - **[Job System](docs/JOBS.md)**
 - **[Queue and Workers](docs/QUEUE.md)**
 - **[Provider Architecture](docs/PROVIDERS.md)**
+- **[MCP Server](docs/MCP.md)**
 - **[Scheduler System](docs/SCHEDULER.md)**
 - **[Plugin System](docs/PLUGINS.md)**
 - **[Testing Guide](docs/TESTING.md)**
@@ -36,16 +37,19 @@ CLI
  |     +-- Jules
  |     +-- Future Providers
  |
- +-- Future MCP / Policy / Observability layers
+ +-- MCP Transport
+ |     |
+ |     +-- Tool Boundary
+ |     +-- Security Boundary
+ |
+ +-- Future Policy / Observability layers
 ```
 
-The Job System provides persistent lifecycle tracking for long-running operations. The Workflow Engine uses it as the execution abstraction. The Queue provides bounded parallel workers for independent workflow Jobs. Provider-specific HTTP behavior is isolated behind the Provider Layer.
+TJC v2 uses the Job System for persistent long-running state, the Workflow Engine for safe orchestration, the Queue for bounded parallel execution, the Provider Layer for external API isolation, and MCP as a controlled external-agent interface.
 
 ## Workflow Engine v2
 
-Workflows are declarative YAML/JSON definitions. They are validated before execution and never expose a generic shell execution primitive.
-
-Supported capabilities include dependency-aware steps, conditions, bounded retries, bounded timeouts, variables, structured reports, resume, and Job integration.
+Workflows are declarative YAML/JSON definitions validated before execution. They support dependencies, conditions, bounded retries/timeouts, variables, structured reports, resume, and Job integration.
 
 ```sh
 tjc workflow validate workflow.yml
@@ -72,28 +76,14 @@ See [docs/JOBS.md](docs/JOBS.md).
 
 ## Queue and Workers
 
-Queue a validated workflow with an optional priority:
-
 ```sh
 tjc queue add workflow.yml 100
-```
-
-Inspect or remove queued work:
-
-```sh
 tjc queue list
 tjc queue remove <id>
-```
-
-Run a bounded worker pool:
-
-```sh
 tjc queue run 2
 ```
 
-The worker limit is conservative by default and cannot exceed 16.
-
-See [docs/QUEUE.md](docs/QUEUE.md).
+The worker pool is bounded to 16 and defaults to 2. See [docs/QUEUE.md](docs/QUEUE.md).
 
 ## Provider Layer
 
@@ -105,6 +95,22 @@ export JULES_API_KEY='...'
 ```
 
 See [docs/PROVIDERS.md](docs/PROVIDERS.md).
+
+## MCP Server
+
+Run the local stdio MCP server with:
+
+```sh
+tjc mcp serve
+```
+
+Mutation/execution tools are disabled by default. An explicitly trusted local integration can enable them with:
+
+```sh
+export TJC_MCP_ALLOW_EXECUTION=true
+```
+
+There is no generic shell/exec MCP tool. See [docs/MCP.md](docs/MCP.md).
 
 ## Scheduler System
 
