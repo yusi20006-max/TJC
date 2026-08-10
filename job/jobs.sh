@@ -1,0 +1,148 @@
+#!/bin/sh
+
+# TJC Job System Foundation
+# Persistent, POSIX-shell-compatible lifecycle management for long-running operations.
+
+TJC_JOB_PENDING="PENDING"
+TJC_JOB_QUEUED="QUEUED"
+TJC_JOB_RUNNING="RUNNING"
+TJC_JOB_COMPLETED="COMPLETED"
+TJC_JOB_FAILED="FAILED"
+TJC_JOB_CANCELLED="CANCELLED"
+TJC_JOB_RETRYING="RETRYING"
+
+tjc_job_dir() {
+  if command -v tjc_config_dir >/dev/null 2>&1; then
+    printf '%s/jobs\n' "$(tjc_config_dir)"
+  else
+    printf '%s/.config/tjc/jobs\n' "${HOME}"
+  fi
+}
+
+tjc_job_ensure_dir() {
+  DIR=$(tjc_job_dir)
+  if [ ! -d "$DIR" ]; then
+    mkdir -p "$DIR" || return 1
+  fi
+  chmod 700 "$DIR" 2>/dev/null || true
+}
+
+tjc_job_valid_id() {
+  printf '%s\n' "${1:-}" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$'
+}
+
+tjc_job_path() {
+  tjc_job_valid_id "$1" || return 1
+  printf '%s/%s.json\n' "$(tjc_job_dir)" "$1"
+}
+
+tjc_job_now() {
+  date -u '+%Y-%m-%dT%H:%M:%SZ'
+}
+
+tjc_job_write_atomic() {
+  TARGET="$1"
+  CONTENT="$2"
+  DIR=$(dirname "$TARGET")
+  TMP="$DIR/.job.$$.tmp"
+  (umask 077 && printf '%s\n' "$CONTENT" > "$TMP") || return 1
+  chmod 600 "$TMP" 2>/dev/null || true
+  mv -f "$TMP" "$TARGET"
+}
+
+tjc_job_create() {
+  ID="${1:-}"
+  DESCRIPTION="${2:-}"
+  if ! tjc_job_valid_id "$ID"; then
+    echo "Invalid Job ID." >&2
+    return 1
+  fi
+  tjc_job_ensure_dir || return 1
+  PATHNAME=$(tjc_job_path "$ID") || return 1
+  if [ -e "$PATHNAME" ]; then
+    echo "Job '$ID' already exists." >&2
+    return 1
+  fi
+  NOW=$(tjc_job_now)
+  JSON=$(jq -n \
+    --arg id "$ID" \
+    --arg description "$DESCRIPTION" \
+    --arg created "$NOW" \
+    '{id:$id,description:$description,status:"PENDING",created_at:$created,updated_at:$created,started_at:null,completed_at:null,attempts:0,result:null,error:null}') || return 1
+  tjc_job_write_atomic "$PATHNAME" "$JSON"
+}
+
+tjc_job_exists() {
+  PATHNAME=$(tjc_job_path "$1") 2>/dev/null || return 1
+  [ -f "$PATHNAME" ] && jq -e 'type == "object" and (.id|type == "string") and (.status|type == "string")' "$PATHNAME" >/dev/null 2>&1
+}
+
+tjc_job_get() {
+  PATHNAME=$(tjc_job_path "$1") || return 1
+  [ -f "$PATHNAME" ] || return 1
+  jq -e . "$PATHNAME"
+}
+
+tjc_job_status() {
+  PATHNAME=$(tjc_job_path "$1") || return 1
+  [ -f "$PATHNAME" ] || return 1
+  jq -er '.status' "$PATHNAME"
+}
+
+tjc_job_set_status() {
+  ID="${1:-}"
+  NEW_STATUS="${2:-}"
+  ERROR_MSG="${3:-}"
+  case "$NEW_STATUS" in
+    PENDING|QUEUED|RUNNING|COMPLETED|FAILED|CANCELLED|RETRYING) ;;
+    *) echo "Invalid Job status." >&2; return 1 ;;
+  esac
+  tjc_job_exists "$ID" || { echo "Job '$ID' not found or is corrupt." >&2; return 1; }
+  PATHNAME=$(tjc_job_path "$ID") || return 1
+  CURRENT=$(jq -r '.status' "$PATHNAME") || return 1
+  case "$CURRENT:$NEW_STATUS" in
+    PENDING:QUEUED|PENDING:CANCELLED|QUEUED:RUNNING|QUEUED:CANCELLED|RUNNING:COMPLETED|RUNNING:FAILED|RUNNING:CANCELLED|FAILED:RETRYING|RETRYING:QUEUED|RETRYING:RUNNING) ;;
+    "$NEW_STATUS:$NEW_STATUS") return 0 ;;
+    *) echo "Invalid state transition: $CURRENT -> $NEW_STATUS" >&2; return 1 ;;
+  esac
+  NOW=$(tjc_job_now)
+  if [ "$NEW_STATUS" = "RUNNING" ]; then
+    JSON=$(jq --arg status "$NEW_STATUS" --arg now "$NOW" '.status=$status | .updated_at=$now | .started_at=($now) | .attempts=(.attempts+1)' "$PATHNAME") || return 1
+  elif [ "$NEW_STATUS" = "COMPLETED" ] || [ "$NEW_STATUS" = "CANCELLED" ]; then
+    JSON=$(jq --arg status "$NEW_STATUS" --arg now "$NOW" --arg err "$ERROR_MSG" '.status=$status | .updated_at=$now | .completed_at=$now | .error=(if $err == "" then .error else $err end)' "$PATHNAME") || return 1
+  elif [ "$NEW_STATUS" = "FAILED" ]; then
+    JSON=$(jq --arg status "$NEW_STATUS" --arg now "$NOW" --arg err "$ERROR_MSG" '.status=$status | .updated_at=$now | .completed_at=$now | .error=$err' "$PATHNAME") || return 1
+  else
+    JSON=$(jq --arg status "$NEW_STATUS" --arg now "$NOW" --arg err "$ERROR_MSG" '.status=$status | .updated_at=$now | .error=(if $err == "" then .error else $err end)' "$PATHNAME") || return 1
+  fi
+  tjc_job_write_atomic "$PATHNAME" "$JSON"
+}
+
+tjc_job_cancel() {
+  ID="${1:-}"
+  STATUS=$(tjc_job_status "$ID") || return 1
+  case "$STATUS" in
+    PENDING|QUEUED|RUNNING|RETRYING) tjc_job_set_status "$ID" CANCELLED "Cancelled by user" ;;
+    COMPLETED|FAILED|CANCELLED) echo "Job '$ID' is already terminal ($STATUS)." >&2; return 1 ;;
+    *) return 1 ;;
+  esac
+}
+
+tjc_job_retry() {
+  ID="${1:-}"
+  STATUS=$(tjc_job_status "$ID") || return 1
+  if [ "$STATUS" != "FAILED" ]; then
+    echo "Only FAILED jobs can be retried." >&2
+    return 1
+  fi
+  tjc_job_set_status "$ID" RETRYING && tjc_job_set_status "$ID" QUEUED
+}
+
+tjc_job_list() {
+  DIR=$(tjc_job_dir)
+  [ -d "$DIR" ] || return 0
+  for FILE in "$DIR"/*.json; do
+    [ -f "$FILE" ] || continue
+    jq -r '[.id,.status,.attempts,.created_at,.updated_at] | @tsv' "$FILE" 2>/dev/null || true
+  done
+}
