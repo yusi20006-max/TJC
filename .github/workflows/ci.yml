@@ -1,0 +1,63 @@
+name: TJC CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck jq
+
+      - name: Shell syntax check
+        run: |
+          set -e
+          find . -type f -name '*.sh' -print0 | xargs -0 -r -n1 bash -n
+
+      - name: ShellCheck
+        run: |
+          set -e
+          shellcheck jules install.sh uninstall.sh lib/*.sh commands/*.sh workflow/*.sh scheduler/*.sh job/*.sh queue/*.sh mcp/*.sh policy/*.sh providers/*.sh plugin/*.sh test/*.sh
+
+      - name: Test suite
+        run: |
+          set -e
+          if [ -x test/run_tests.sh ]; then
+            ./test/run_tests.sh
+          else
+            echo 'test/run_tests.sh is missing or not executable' >&2
+            exit 1
+          fi
+
+      - name: Workflow and scheduler regression tests
+        run: |
+          set -e
+          for test_file in test/test_workflows.sh test/test_scheduler.sh; do
+            if [ -f "$test_file" ]; then
+              bash "$test_file"
+            else
+              echo "Missing required regression test: $test_file" >&2
+              exit 1
+            fi
+          done
+
+      - name: Installer smoke test
+        run: |
+          set -e
+          test -x ./install.sh
+          test -x ./uninstall.sh
+          tmp_home="$(mktemp -d)"
+          trap 'rm -rf "$tmp_home"' EXIT
+          HOME="$tmp_home" ./install.sh
+          command -v tjc >/dev/null 2>&1 || command -v jules >/dev/null 2>&1
