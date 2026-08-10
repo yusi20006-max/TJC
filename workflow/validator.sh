@@ -1,195 +1,100 @@
 #!/bin/sh
 
 # TJC Workflow Validator
-# Validates workflow schemas, keys, types, and protects against directory traversal and command injection.
+# Strict schema validation for safe, deterministic workflow execution.
 
-# Public function: tjc_workflow_validate
-# Usage: tjc_workflow_validate <workflow_file>
-# Description: Performs thorough validation of a workflow file.
-# Returns: Exit code 0 if valid, non-zero (1) if invalid with descriptive error messages.
+# Public: tjc_workflow_validate <workflow_file>
 tjc_workflow_validate() {
-  FILE="$1"
+  FILE="${1:-}"
 
-  if [ -z "$FILE" ]; then
-    tjc_error "Usage: tjc_workflow_validate <workflow_file>"
-    return 1
-  fi
+  [ -n "$FILE" ] || { tjc_error 'Usage: tjc_workflow_validate <workflow_file>'; return 1; }
+  case "$FILE" in *';'*|*'&'*|*'|'*|*'`'*|*'$'*) tjc_error 'Security alert: unsafe workflow path.'; return 1;; esac
+  [ -f "$FILE" ] || { tjc_error "Workflow file does not exist: $FILE"; return 1; }
+  yq . "$FILE" >/dev/null 2>&1 || { tjc_error 'Workflow file is not valid YAML or JSON.'; return 1; }
 
-  # Prevent directory traversal or shell injection in the filename/path
-  # Allow standard characters: alphanumeric, dots, slashes, dashes, underscores
-  if echo "$FILE" | grep -Eq '[;&|`$]'; then
-    tjc_error "Security alert: Unsafe characters detected in workflow file path."
-    return 1
-  fi
-
-  if [ ! -f "$FILE" ]; then
-    tjc_error "Workflow file does not exist: $FILE"
-    return 1
-  fi
-
-  # Check if valid YAML/JSON
-  if ! yq . "$FILE" >/dev/null 2>&1; then
-    tjc_error "Workflow file is not valid YAML or JSON: $FILE"
-    return 1
-  fi
-
-  # Check for unknown fields at the top-level
-  # Allowed top-level fields are name, description, steps
   TOP_KEYS=$(yq -r 'keys[]' "$FILE" 2>/dev/null)
   for KEY in $TOP_KEYS; do
-    case "$KEY" in
-      name|description|steps)
-        # Allowed
-        ;;
-      *)
-        tjc_error "Workflow validation failed: Unknown top-level field '$KEY' is not allowed."
-        return 1
-        ;;
-    esac
+    case "$KEY" in name|description|variables|steps) ;; *) tjc_error "Unknown top-level field '$KEY'."; return 1;; esac
   done
 
-  # Validate Name
   NAME=$(tjc_workflow_get_name "$FILE")
-  if [ -z "$NAME" ] || [ "$NAME" = "null" ]; then
-    tjc_error "Workflow validation failed: 'name' is required and cannot be empty."
-    return 1
+  [ -n "$NAME" ] && [ "$NAME" != null ] || { tjc_error "'name' is required."; return 1; }
+  case "$NAME" in *'\n'*|*'\r'*) tjc_error 'Workflow name contains a newline.'; return 1;; esac
+
+  if ! yq -e '.steps | type == "!!seq" and length > 0' "$FILE" >/dev/null 2>&1; then
+    tjc_error "'steps' must be a non-empty array."; return 1
   fi
 
-  # Check for unsafe characters in workflow name to prevent log injection
-  NL='
-'
-  CR=$(printf '\r')
-  case "$NAME" in
-    *"$NL"*|*"$CR"*)
-      tjc_error "Workflow validation failed: Name contains invalid newline characters."
-      return 1
-      ;;
-  esac
+  if ! yq -e '.variables // {} | type == "!!map"' "$FILE" >/dev/null 2>&1; then
+    tjc_error "'variables' must be a mapping."; return 1
+  fi
 
-  # Validate Steps structure
   STEPS_COUNT=$(tjc_workflow_get_steps_count "$FILE")
-  if [ "$STEPS_COUNT" -eq 0 ]; then
-    tjc_error "Workflow validation failed: 'steps' must be a non-empty array."
-    return 1
-  fi
-
-  # Validate each step type
   INDEX=0
   while [ "$INDEX" -lt "$STEPS_COUNT" ]; do
+    PARAMS=$(tjc_workflow_get_step_params "$FILE" "$INDEX")
     TYPE=$(tjc_workflow_get_step_type "$FILE" "$INDEX")
-    if [ -z "$TYPE" ] || [ "$TYPE" = "null" ]; then
-      tjc_error "Workflow validation failed: Step $INDEX is missing 'type'."
-      return 1
-    fi
+    [ -n "$TYPE" ] && [ "$TYPE" != null ] || { tjc_error "Step $INDEX is missing 'type'."; return 1; }
 
-    # Check if type is one of the strictly allowed step types
     case "$TYPE" in
-      create_session)
-        # Check create_session parameters
-        PARAMS=$(tjc_workflow_get_step_params "$FILE" "$INDEX")
-        # Allowed keys for create_session: type, session_name
-        STEP_KEYS=$(echo "$PARAMS" | jq -r 'keys[]')
-        for S_KEY in $STEP_KEYS; do
-          case "$S_KEY" in
-            type|session_name) ;;
-            *)
-              tjc_error "Workflow validation failed: Step $INDEX has unknown parameter '$S_KEY' for create_session."
-              return 1
-              ;;
-          esac
-        done
-
-        SESS_NAME=$(echo "$PARAMS" | jq -r '.session_name // ""')
-        if [ -n "$SESS_NAME" ] && [ "$SESS_NAME" != "null" ]; then
-          if ! echo "$SESS_NAME" | grep -Eq '^[a-zA-Z0-9_-]+$'; then
-            tjc_error "Workflow validation failed: Step $INDEX session_name is unsafe. Must be alphanumeric, dashes, and underscores only."
-            return 1
-          fi
-        fi
-        ;;
-      watch_session)
-        # Check watch_session parameters
-        PARAMS=$(tjc_workflow_get_step_params "$FILE" "$INDEX")
-        # Allowed keys for watch_session: type, session_id
-        STEP_KEYS=$(echo "$PARAMS" | jq -r 'keys[]')
-        for S_KEY in $STEP_KEYS; do
-          case "$S_KEY" in
-            type|session_id) ;;
-            *)
-              tjc_error "Workflow validation failed: Step $INDEX has unknown parameter '$S_KEY' for watch_session."
-              return 1
-              ;;
-          esac
-        done
-
-        SESS_ID=$(echo "$PARAMS" | jq -r '.session_id // ""')
-        if [ -n "$SESS_ID" ] && [ "$SESS_ID" != "null" ]; then
-          if ! echo "$SESS_ID" | grep -Eq '^[a-zA-Z0-9_.-]+$'; then
-            tjc_error "Workflow validation failed: Step $INDEX session_id is unsafe."
-            return 1
-          fi
-        fi
-        ;;
-      list_activities)
-        # Check list_activities parameters
-        PARAMS=$(tjc_workflow_get_step_params "$FILE" "$INDEX")
-        STEP_KEYS=$(echo "$PARAMS" | jq -r 'keys[]')
-        for S_KEY in $STEP_KEYS; do
-          case "$S_KEY" in
-            type) ;;
-            *)
-              tjc_error "Workflow validation failed: Step $INDEX has unknown parameter '$S_KEY' for list_activities."
-              return 1
-              ;;
-          esac
-        done
-        ;;
-      get_pr)
-        # Check get_pr parameters
-        PARAMS=$(tjc_workflow_get_step_params "$FILE" "$INDEX")
-        # Allowed keys for get_pr: type, pr_number
-        STEP_KEYS=$(echo "$PARAMS" | jq -r 'keys[]')
-        for S_KEY in $STEP_KEYS; do
-          case "$S_KEY" in
-            type|pr_number) ;;
-            *)
-              tjc_error "Workflow validation failed: Step $INDEX has unknown parameter '$S_KEY' for get_pr."
-              return 1
-              ;;
-          esac
-        done
-
-        PR_NUM=$(echo "$PARAMS" | jq -r '.pr_number // ""')
-        if [ -n "$PR_NUM" ] && [ "$PR_NUM" != "null" ]; then
-          if ! echo "$PR_NUM" | grep -Eq '^[0-9]+$'; then
-            tjc_error "Workflow validation failed: Step $INDEX pr_number is invalid. Must be a positive integer."
-            return 1
-          fi
-        fi
-        ;;
-      doctor)
-        # Check doctor parameters
-        PARAMS=$(tjc_workflow_get_step_params "$FILE" "$INDEX")
-        STEP_KEYS=$(echo "$PARAMS" | jq -r 'keys[]')
-        for S_KEY in $STEP_KEYS; do
-          case "$S_KEY" in
-            type) ;;
-            *)
-              tjc_error "Workflow validation failed: Step $INDEX has unknown parameter '$S_KEY' for doctor."
-              return 1
-              ;;
-          esac
-        done
-        ;;
-      *)
-        tjc_error "Workflow validation failed: Step $INDEX has invalid or forbidden type '$TYPE'."
-        tjc_error "Allowed step types are: create_session, watch_session, list_activities, get_pr, doctor."
-        return 1
-        ;;
+      create_session) ALLOWED='type session_name' ;;
+      watch_session) ALLOWED='type session_id' ;;
+      list_activities|doctor) ALLOWED='type' ;;
+      get_pr) ALLOWED='type pr_number' ;;
+      *) tjc_error "Step $INDEX has invalid type '$TYPE'."; return 1 ;;
     esac
 
+    STEP_KEYS=$(echo "$PARAMS" | jq -r 'keys[]')
+    for KEY in $STEP_KEYS; do
+      case " $ALLOWED depends_on condition retry timeout " in
+        *" $KEY "*) ;;
+        *) tjc_error "Step $INDEX has unknown parameter '$KEY'."; return 1 ;;
+      esac
+    done
+
+    if ! echo "$PARAMS" | jq -e '.depends_on // [] | type == "array" and all(.[]; type == "number" or type == "string")' >/dev/null 2>&1; then
+      tjc_error "Step $INDEX depends_on must be an array."; return 1
+    fi
+
+    CONDITION=$(tjc_workflow_get_step_condition "$FILE" "$INDEX")
+    case "$CONDITION" in on_success|always|on_failure|"var:"*) ;; *) tjc_error "Step $INDEX has unsupported condition '$CONDITION'."; return 1;; esac
+
+    RETRY=$(tjc_workflow_get_step_retry_attempts "$FILE" "$INDEX")
+    [ "$RETRY" -le 10 ] || { tjc_error "Step $INDEX retry attempts cannot exceed 10."; return 1; }
+
+    TIMEOUT=$(tjc_workflow_get_step_timeout "$FILE" "$INDEX")
+    [ "$TIMEOUT" -le 86400 ] || { tjc_error "Step $INDEX timeout cannot exceed 86400 seconds."; return 1; }
+
+    case "$TYPE" in
+      create_session)
+        SESS=$(echo "$PARAMS" | jq -r '.session_name // ""')
+        [ -z "$SESS" ] || echo "$SESS" | grep -Eq '^[A-Za-z0-9_-]{1,64}$' || { tjc_error "Step $INDEX session_name is unsafe."; return 1; }
+        ;;
+      watch_session)
+        SID=$(echo "$PARAMS" | jq -r '.session_id // ""')
+        [ -z "$SID" ] || echo "$SID" | grep -Eq '^[A-Za-z0-9_.-]{1,128}$' || { tjc_error "Step $INDEX session_id is unsafe."; return 1; }
+        ;;
+      get_pr)
+        PR=$(echo "$PARAMS" | jq -r '.pr_number // ""')
+        echo "$PR" | grep -Eq '^[1-9][0-9]*$' || { tjc_error "Step $INDEX pr_number must be a positive integer."; return 1; }
+        ;;
+    esac
     INDEX=$((INDEX + 1))
   done
+
+  # Validate dependency references and reject cycles with a DFS implemented by jq.
+  if ! yq -o=json '.steps' "$FILE" | jq -e '
+    def deps($i): (.[$i].depends_on // []) | map(if type == "number" then . else (try tonumber catch -1) end);
+    def visit($i; $path):
+      if ($i < 0 or $i >= length) then false
+      elif ($path | index($i)) != null then false
+      else any(deps($i)[]; visit(. ; ($path + [$i]))) | not
+      end;
+    all(range(0; length); visit(. ; []))
+  ' >/dev/null 2>&1; then
+    tjc_error 'Workflow contains an invalid dependency reference or cycle.'
+    return 1
+  fi
 
   return 0
 }
