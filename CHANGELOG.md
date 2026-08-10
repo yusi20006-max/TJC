@@ -1,5 +1,32 @@
 # Changelog
 
+## 2.1.0
+
+TJC v2.1 is the stability and production-hardening release following the v2 automation architecture.
+
+### Stability
+
+- Hardened Jules Provider HTTP behavior with bounded timeout and retry handling.
+- Added provider error classification and secret-safe diagnostics.
+- Improved persistent Job durability, locking, recovery, and crash handling.
+- Added secure Plugin Runtime capability boundaries and policy integration.
+- Hardened installation and packaging for complete runtime deployment and safer upgrades.
+- Expanded release verification across the v2 subsystem boundaries.
+
+### Security
+
+- Provider credentials remain outside persistent Job, Workflow, audit, and documentation data.
+- Plugin capabilities require explicit authorization.
+- Workflow, MCP, filesystem, and Plugin execution remain policy-controlled.
+- Unknown policy operations remain denied by default.
+- Runtime state uses restrictive filesystem permissions and atomic state updates where required.
+
+### Verification
+
+- Added and expanded tests for Provider, Job recovery, Plugin security, Installer behavior, Policy, MCP, Queue, Workflow, and Audit boundaries.
+- CI/release gates cover shell syntax and ShellCheck where the CI environment provides them.
+- The final audit records any runtime verification that cannot be performed in a repository-only environment rather than claiming it was executed.
+
 ## 2.0.0
 
 TJC v2 introduces the production architecture for persistent automation and external-agent integration.
@@ -45,14 +72,11 @@ TJC v2 introduces the production architecture for persistent automation and exte
 
 ## 1.0.0
 
-- Production Readiness Audit completed, ensuring 100% production-readiness.
-- High-performance, daemonless design with non-daemon Scheduler System running via a 'run-pending' pull model.
-- Decoupled Workflow Engine supporting YAML/JSON execution plans, sequential steps, and detailed report tracking.
-- Secure design with API secret masking, strict validation of alphanumeric and file path patterns to prevent command injection, and secure folder permissions (700 and 600).
-- Standardized Shell/POSIX shared libraries (`lib/`) for config, logging, terminal colors, and checks.
-- Comprehensive POSIX testing harness with automated suites (`test_workflows.sh` and `test_scheduler.sh`) running in isolated environments.
-- 100% ShellCheck compliance across all project scripts.
-- Exhaustive documentation updates including new manuals for installation, testing, development, workflows, scheduler, and plugins.
+- Production Readiness Audit completed.
+- High-performance daemonless Scheduler System.
+- Secure workflow validation and secret masking.
+- POSIX testing harness and ShellCheck compliance.
+- Comprehensive installation, testing, development, workflow, scheduler, and plugin documentation.
 
 ## 0.1.0-dev
 
