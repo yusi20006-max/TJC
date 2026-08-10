@@ -1,103 +1,104 @@
-# TJC Production Readiness Audit Report
+# TJC v2 Final Production Audit
 
-This document presents the complete findings, improvements, security validations, and final production readiness verdict for TJC (Termux Jules CLI).
+## Scope
 
----
+Repository-wide architectural and security review for the TJC v2 release candidate.
 
-## 1. Executive Summary
+## Architecture Verified
 
-TJC is a custom, lightweight, POSIX-compliant CLI platform designed to automate and orchestrate workflows interacting with the Google Jules API. It is engineered for high performance, zero continuous daemon overhead, and full portability across Linux distributions and mobile devices via Termux on Android.
+- CLI dispatch and shared configuration
+- Persistent Job System
+- Advanced Workflow Engine
+- Scheduler
+- Priority Queue and bounded workers
+- Jules Provider abstraction
+- Local MCP stdio server
+- Central Policy Engine
+- Structured Observability/Audit layer
+- Existing Plugin extension boundary
 
-In this Production Readiness Audit, we have acted as senior maintainers and reviewers to review the codebase against strict production criteria, including architecture consistency, security controls, code quality, test coverage, and documentation.
+## Execution Architecture
 
-**Verdict:** After comprehensive auditing, enhancements, and validation, the TJC repository is declared **100% Production-Ready**.
+Jobs provide persistent lifecycle state. Workflows provide safe orchestration. Queue workers provide bounded parallel execution. Providers isolate external API details. MCP exposes controlled external-agent tools. Policy provides authorization. Audit provides structured cross-cutting visibility.
 
----
+## Security Review
 
-## 2. Repository Overview
+### Workflow
 
-TJC is organized into clean, single-responsibility modules:
-- **Core Entrypoint (`jules`)**: Handles arguments, routes commands, and manages standard setups.
-- **Commands (`commands/`)**: Contains handlers for `help`, `version`, `workflow`, and `schedule`.
-- **Workflow Engine (`workflow/`)**: Houses the parsing, validation, and sequential execution logic of workflows.
-- **Scheduler System (`scheduler/`)**: Implements the persistent storage, check logic, and run-pending pull-model automation.
-- **Shared Libraries (`lib/`)**: Provides centralized functions for configuration, colors, logging, terminal formatting, and command checks.
-- **Test Suite (`test/`)**: Automated scripts with dynamic isolation for testing the workflow and scheduler systems.
+Only approved workflow step types are executable. Input paths, step parameters, dependency graphs, conditions, retry limits, and timeout limits are validated. No generic shell/eval workflow step is exposed.
 
----
+### MCP
 
-## 3. Architecture Review
+MCP uses local stdio JSON-RPC transport. Mutation/execution operations are explicitly permission-gated. There is no generic shell/exec MCP tool.
 
-The architecture of TJC is exceptionally clean and conforms to industry best practices:
-- **Decoupling**: The Scheduler, Workflow Engine, and Logger modules are completely decoupled. They interact solely via public interfaces, avoiding direct access to other modules' private functions.
-- **Daemonless Design**: The Scheduler runs on a pull-model (`run-pending`), integrating seamlessly with standard task managers like `cron` and `Termux:Boot`, saving system resources.
-- **Backward Compatibility**: Fully preserved existing CLI command patterns, JSON formats, and workflow file syntaxes.
+### Policy
 
----
+Unknown operations are denied by default. MCP execution, plugin execution, and filesystem writes are restrictive by default. Local workflow/Job/Queue operations retain explicit allow entries for backward compatibility.
 
-## 4. Security Review
+### Secrets
 
-Security is a primary pillar of the TJC design:
-- **API Key & Secret Masking**: The Logging System (`lib/logger.sh`) and Workflow Engine (`workflow/engine.sh`) ensure that workflow step parameters, keys, or credentials are never logged or stored.
-- **Input and Path Validation**:
-  - Unsafe characters (`;`, `&`, `|`, `` ` ``, `$`) are strictly rejected in input fields to prevent shell injection.
-  - Directory traversals (`..`) are strictly validated and blocked to protect against local file exposure.
-  - Alphanumeric, dash, and underscore checks (`^[a-zA-Z0-9_-]+$`) are enforced on schedule IDs and names.
-- **Secure File Permissions**:
-  - The configuration directory `~/.config/tjc` and subfolders are initialized with `700` permissions (owner read/write/execute only).
-  - Config files, log files, and workflow execution reports are created with `600` permissions (owner read/write only).
+Jules authentication uses the `X-Goog-Api-Key` header. API credentials are not intentionally stored in Job records, workflow reports, policy files, or audit metadata. Sensitive audit field names are redacted before persistence.
 
----
+### Filesystem
 
-## 5. Code Quality Review
+Persistent state uses restrictive permissions. Job state uses atomic writes and per-Job locking. Queue claims use atomic filesystem locks and bounded worker counts.
 
-- **Dead Code and Duplication**: The repository was reviewed top-to-bottom. No dead code or duplicated function definitions were found.
-- **ShellCheck Compliance**: Every single shell file in the repository passes `shellcheck` with zero warnings or errors. Suppressing directives (e.g., `# shellcheck disable=SC1091`) are used only for dynamic sourcing and are properly documented.
-- **Exit Statuses**: Standard exit codes (`0` for success, non-zero for failures) are consistently used and propagated back to the shell environment.
+## Reliability Review
 
----
+- Job lifecycle persists across CLI termination.
+- Workflow retries and timeouts are bounded.
+- Workflow reports support resume.
+- Queue worker concurrency is bounded.
+- Queue items remain persistent when no worker is active.
+- MCP does not require a network-facing daemon.
 
-## 6. Documentation Review
+## Documentation
 
-The documentation has been reviewed and significantly enhanced:
-- **`README.md`**: Upgraded with a clean documentation index directory linking all manuals.
-- **`docs/INSTALLATION.md`** (*New*): Covers detailed prerequisites, step-by-step installs, custom prefixes, post-install configurations, and troubleshooting steps.
-- **`docs/PLUGINS.md`** (*New*): Outlines how to extend TJC with custom subcommands or custom workflow step types.
-- **`docs/TESTING.md`** (*New*): Describes the POSIX testing harness, dynamic workspace isolation, assertions, and linting guidelines.
-- **`docs/DEVELOPMENT.md`**: Enriched with standard directory hierarchies, coding conventions, and Termux-specific sandboxing guidelines.
-- **`docs/WORKFLOWS.md`**: Improved with reference links and security validation notes.
-- **`docs/SCHEDULER.md`**: Refined to emphasize the non-daemon pull-model design.
+The v2 architecture is documented in:
 
----
+- `docs/ARCHITECTURE_V2.md`
+- `docs/JOBS.md`
+- `docs/WORKFLOWS.md`
+- `docs/QUEUE.md`
+- `docs/PROVIDERS.md`
+- `docs/MCP.md`
+- `docs/OBSERVABILITY.md`
+- `docs/POLICIES.md`
 
-## 7. Test Results
+## Test Coverage
 
-TJC includes a comprehensive, isolated test suite. Tests are run against a generated temporary directory, protecting the user's config.
+Dedicated test suites exist for:
 
-- **Workflow Tests (`./test/test_workflows.sh`)**: Passed (19/19)
-- **Scheduler Tests (`./test/test_scheduler.sh`)**: Passed (16/16)
-- **ShellCheck Linting (`shellcheck`)**: Clean (0 warnings/errors)
+- Job System
+- Workflow v2
+- Queue
+- Provider layer
+- MCP
+- Audit
+- Policy
 
----
+## Static Verification Limitation
 
-## 8. Risks Found & Fixes Applied
+The GitHub repository connector used for this implementation does not provide a local Termux runtime. Therefore this audit does **not** claim that the complete shell test suite or ShellCheck was executed during this repository-editing session.
 
-1. **Risk:** Unrestricted directory and file permissions could lead to local information disclosure of reports, logs, or schedules.
-   - **Fix Applied:** Integrated `tjc_ensure_config_dir` setting `700` permissions, and enforced `600` permissions across log files, scheduled job JSON files, and workflow JSON reports.
-2. **Risk:** Incomplete installation or plugin documentation might prevent production integration or developer extensibility.
-   - **Fix Applied:** Created dedicated manuals: `INSTALLATION.md`, `PLUGINS.md`, and `TESTING.md` to ensure frictionless onboarding.
+The tests and documentation are committed for execution by the repository's normal Termux/Linux verification process.
 
----
+## Security Search
 
-## 9. Remaining Recommendations
+Repository commit search was checked for the known credential marker `JULES_API_KEY` and the test secret marker `test-secret`; neither was found in commit search results.
 
-- **Automated CI/CD**: Hook `./test/test_workflows.sh` and `./test/test_scheduler.sh` into GitHub Actions alongside `shellcheck` to maintain 100% pass rates on incoming PRs.
-- **Package Manager Integration**: Consider publishing TJC as a package on Termux's official repositories or standard Linux distributions for even easier distribution.
+## Release Assessment
 
----
+**Architecture:** Complete
 
-## 10. Final Production Readiness Verdict
+**Security boundaries:** Complete
 
-### **VERDICT: 100% PRODUCTION-READY**
+**Documentation:** Complete
 
-TJC is fully verified, robustly secured, thoroughly documented, and completely clean of static analysis warnings. It is fully ready for high-fidelity enterprise and personal production deployment.
+**Test suites:** Present
+
+**Local runtime execution:** Not available in this connector environment
+
+**Release status:** v2.0.0 Release Candidate
+
+The repository is ready for final runtime verification. A claim of fully executed ShellCheck/test results is intentionally not made without an actual Termux/Linux execution environment.
