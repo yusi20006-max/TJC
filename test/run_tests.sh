@@ -4,7 +4,7 @@
 
 set -eu
 
-BASE_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+BASE_DIR=$(cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$BASE_DIR"
 
 PASSED=0
