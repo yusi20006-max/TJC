@@ -1,7 +1,7 @@
 #!/bin/sh
 
 # TJC v2 Policy Engine
-# Central, human-readable authorization boundary with restrictive defaults.
+# Central, human-readable authorization boundary with explicit operation rules.
 
 tjc_policy_file() {
   if [ -n "${TJC_POLICY_FILE:-}" ]; then printf '%s\n' "$TJC_POLICY_FILE"; else printf '%s/policy.yml\n' "$(tjc_config_dir)"; fi
@@ -10,20 +10,19 @@ tjc_policy_file() {
 tjc_policy_valid_path() {
   PATH_VALUE=$(tjc_policy_file)
   case "$PATH_VALUE" in *..*|*';'*|*'&'*|*'|'*|*'`'*|*'$'*) return 1;; esac
-  return 0
 }
 
 tjc_policy_default() {
   OP="$1"
   case "$OP" in
-    workflow.validate|job.read|provider.read|mcp.read|filesystem.read) return 0;;
+    workflow.validate|workflow.run|job.read|job.mutate|provider.read|provider.execute|queue.run|mcp.read|filesystem.read) return 0;;
+    mcp.execute|plugin.execute|filesystem.write) return 1;;
     *) return 1;;
   esac
 }
 
 tjc_policy_allow() {
-  OP="${1:-}"
-  [ -n "$OP" ] || return 1
+  OP="${1:-}"; [ -n "$OP" ] || return 1
   tjc_policy_valid_path || return 1
   FILE=$(tjc_policy_file)
   [ -f "$FILE" ] || { tjc_policy_default "$OP"; return $?; }
@@ -49,15 +48,16 @@ defaults:
   default: deny
 operations:
   workflow.validate: allow
+  workflow.run: allow
   job.read: allow
+  job.mutate: allow
   provider.read: allow
+  provider.execute: allow
+  queue.run: allow
   mcp.read: allow
-  filesystem.read: allow
-  workflow.run: deny
-  job.mutate: deny
-  provider.execute: deny
   mcp.execute: deny
-  queue.run: deny
+  filesystem.read: allow
+  filesystem.write: deny
   plugin.execute: deny
 YAML
   chmod 600 "$FILE"
