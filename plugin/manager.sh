@@ -1,6 +1,8 @@
 #!/bin/sh
 # TJC v2.1 Plugin Manager
 # Plugins are opt-in, manifest-driven, and policy-gated.
+# This schema constant is part of the sourced module's public API.
+# shellcheck disable=SC2034
 
 TJC_PLUGIN_SCHEMA_VERSION=1
 
