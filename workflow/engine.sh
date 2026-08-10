@@ -1,289 +1,266 @@
 #!/bin/sh
 
-# TJC Workflow Engine
-# Manages the sequential, safe execution of workflows, handles state transitions, and reports outcomes.
+# TJC Workflow Engine v2
+# Deterministic orchestration with dependencies, conditions, retries, timeouts,
+# variables, persistent reports, resume support, and optional Job integration.
 
-# Ensure dependencies are loaded
-# shellcheck disable=SC1091 # Dynamic path resolution at runtime
+# shellcheck disable=SC1091
 . "${BASE_DIR}/lib/utils.sh"
-# shellcheck disable=SC1091 # Dynamic path resolution at runtime
+# shellcheck disable=SC1091
 . "${BASE_DIR}/lib/logger.sh"
-# shellcheck disable=SC1091 # Dynamic path resolution at runtime
+# shellcheck disable=SC1091
 . "${BASE_DIR}/workflow/parser.sh"
-# shellcheck disable=SC1091 # Dynamic path resolution at runtime
+# shellcheck disable=SC1091
 . "${BASE_DIR}/workflow/validator.sh"
+# shellcheck disable=SC1091
+. "${BASE_DIR}/job/jobs.sh"
 
-# Public function: tjc_workflow_execute
-# Usage: tjc_workflow_execute <workflow_file>
-# Description: Validates and runs all steps in a workflow file sequentially.
-#              Updates report states (PENDING, RUNNING, COMPLETED, FAILED, CANCELLED).
-# Returns: Exit code 0 on success, non-zero on failure.
+# Return 0 when every dependency has COMPLETED status.
+tjc_workflow_dependencies_ok() {
+  FILE="$1"; INDEX="$2"; REPORT="$3"
+  DEPS=$(tjc_workflow_get_step_dependencies "$FILE" "$INDEX")
+  [ -n "$DEPS" ] || return 0
+  for DEP in $DEPS; do
+    case "$DEP" in *[!0-9]*) return 1;; esac
+    STATUS=$(jq -r ".steps[$DEP].status // \"UNKNOWN\"" "$REPORT")
+    [ "$STATUS" = "COMPLETED" ] || return 1
+  done
+  return 0
+}
+
+# Evaluate the deliberately small, non-shell condition language.
+tjc_workflow_condition_ok() {
+  FILE="$1"; INDEX="$2"; REPORT="$3"
+  CONDITION=$(tjc_workflow_get_step_condition "$FILE" "$INDEX")
+  case "$CONDITION" in
+    always) return 0 ;;
+    on_success) tjc_workflow_dependencies_ok "$FILE" "$INDEX" "$REPORT"; return $? ;;
+    on_failure)
+      DEPS=$(tjc_workflow_get_step_dependencies "$FILE" "$INDEX")
+      [ -n "$DEPS" ] || return 1
+      for DEP in $DEPS; do
+        [ "$(jq -r ".steps[$DEP].status // \"UNKNOWN\"" "$REPORT")" = "FAILED" ] && return 0
+      done
+      return 1
+      ;;
+    var:*)
+      EXPR=${CONDITION#var:}; KEY=${EXPR%%=*}; EXPECTED=${EXPR#*=}
+      echo "$KEY" | grep -Eq '^[A-Za-z_][A-Za-z0-9_.-]*$' || return 1
+      ACTUAL=$(yq -r ".variables[\"$KEY\"] // \"\"" "$FILE" 2>/dev/null)
+      [ "$ACTUAL" = "$EXPECTED" ]
+      ;;
+    *) return 1 ;;
+  esac
+}
+
+# Run a supported step, optionally enforcing a wall-clock timeout.
+tjc_workflow_run_step() {
+  TYPE="$1"; PARAMS="$2"; TIMEOUT="$3"; OUTFILE="$4"
+  if [ "$TIMEOUT" -le 0 ]; then
+    case "$TYPE" in
+      doctor) tjc_workflow_run_doctor "$PARAMS" >"$OUTFILE" 2>&1 ;;
+      create_session) tjc_workflow_run_create_session "$PARAMS" >"$OUTFILE" 2>&1 ;;
+      watch_session) tjc_workflow_run_watch_session "$PARAMS" >"$OUTFILE" 2>&1 ;;
+      list_activities) tjc_workflow_run_list_activities "$PARAMS" >"$OUTFILE" 2>&1 ;;
+      get_pr) tjc_workflow_run_get_pr "$PARAMS" >"$OUTFILE" 2>&1 ;;
+      *) echo "Unknown step type: $TYPE" >"$OUTFILE"; return 1 ;;
+    esac
+    return $?
+  fi
+
+  # A timeout is implemented without arbitrary shell evaluation. The selected
+  # internal function is started as a child process and its PID is monitored.
+  case "$TYPE" in
+    doctor) tjc_workflow_run_doctor "$PARAMS" >"$OUTFILE" 2>&1 & PID=$! ;;
+    create_session) tjc_workflow_run_create_session "$PARAMS" >"$OUTFILE" 2>&1 & PID=$! ;;
+    watch_session) tjc_workflow_run_watch_session "$PARAMS" >"$OUTFILE" 2>&1 & PID=$! ;;
+    list_activities) tjc_workflow_run_list_activities "$PARAMS" >"$OUTFILE" 2>&1 & PID=$! ;;
+    get_pr) tjc_workflow_run_get_pr "$PARAMS" >"$OUTFILE" 2>&1 & PID=$! ;;
+    *) echo "Unknown step type: $TYPE" >"$OUTFILE"; return 1 ;;
+  esac
+
+  ELAPSED=0
+  while kill -0 "$PID" 2>/dev/null; do
+    if [ "$ELAPSED" -ge "$TIMEOUT" ]; then
+      kill "$PID" 2>/dev/null || true
+      wait "$PID" 2>/dev/null || true
+      echo "Step timed out after ${TIMEOUT}s." >>"$OUTFILE"
+      return 124
+    fi
+    sleep 1
+    ELAPSED=$((ELAPSED + 1))
+  done
+  wait "$PID"
+}
+
+# Execute a workflow. Optional second argument is an existing report to resume.
 tjc_workflow_execute() {
-  # shellcheck disable=SC3043 # local is supported by all target POSIX shells in Termux and standard Linux
-  local WORKFLOW_FILE WORKFLOW_NAME STEPS_COUNT REPORTS_DIR STARTED_AT REPORT_FILE
-  # shellcheck disable=SC3043 # local is supported by all target POSIX shells in Termux and standard Linux
-  local FINAL_STATUS INDEX STEP_TYPE STEP_PARAMS STEP_STARTED STEP_OUTPUT STEP_STATUS
-  # shellcheck disable=SC3043 # local is supported by all target POSIX shells in Termux and standard Linux
-  local STEP_ENDED TEMP_REPORT ENDED_AT
+  WORKFLOW_FILE="${1:-}"
+  RESUME_REPORT="${2:-}"
+  [ -n "$WORKFLOW_FILE" ] || { tjc_error 'Usage: tjc_workflow_execute <workflow_file> [resume_report]'; return 1; }
+  tjc_workflow_validate "$WORKFLOW_FILE" || return 1
 
-  WORKFLOW_FILE="$1"
-
-  if [ -z "$WORKFLOW_FILE" ]; then
-    tjc_error "Usage: tjc_workflow_execute <workflow_file>"
-    return 1
-  fi
-
-  # Validate the workflow first
-  if ! tjc_workflow_validate "$WORKFLOW_FILE"; then
-    tjc_log_error "Workflow validation failed for $WORKFLOW_FILE"
-    return 1
-  fi
-
-  WORKFLOW_NAME=$(tjc_workflow_get_name "$WORKFLOW_FILE")
-  tjc_log_info "Starting workflow: $WORKFLOW_NAME"
-  tjc_info "Starting workflow: $WORKFLOW_NAME"
-
-  STEPS_COUNT=$(tjc_workflow_get_steps_count "$WORKFLOW_FILE")
-
-  # Prepare report directory and JSON template
+  NAME=$(tjc_workflow_get_name "$WORKFLOW_FILE")
   tjc_ensure_config_dir
   REPORTS_DIR="$(tjc_config_dir)/workflows/reports"
-  if [ ! -d "$REPORTS_DIR" ]; then
-    mkdir -p "$REPORTS_DIR"
-  fi
+  mkdir -p "$REPORTS_DIR"
   chmod 700 "$REPORTS_DIR"
 
-  STARTED_AT=$(date +'%Y-%m-%d %H:%M:%S')
-  REPORT_FILE="${REPORTS_DIR}/report_$(date +%Y%m%d_%H%M%S)_$$.json"
+  START_INDEX=0
+  RESUMED_FROM=""
+  if [ -n "$RESUME_REPORT" ]; then
+    case "$RESUME_REPORT" in *..*|*';'*|*'&'*|*'|'*|*'`'*|*'$'*) tjc_error 'Unsafe resume report path.'; return 1;; esac
+    [ -f "$RESUME_REPORT" ] || { tjc_error "Resume report not found: $RESUME_REPORT"; return 1; }
+    ORIGINAL=$(jq -r '.file // ""' "$RESUME_REPORT")
+    [ "$ORIGINAL" = "$WORKFLOW_FILE" ] || { tjc_error 'Resume report belongs to a different workflow.'; return 1; }
+    START_INDEX=$(jq -r '[.steps[] | select(.status == "COMPLETED")] | length' "$RESUME_REPORT")
+    RESUMED_FROM=$(basename "$RESUME_REPORT")
+  fi
 
-  # Initialize step states
-  FINAL_STATUS="COMPLETED"
+  TS=$(date -u +%Y%m%dT%H%M%SZ)
+  REPORT_FILE="$REPORTS_DIR/report_${TS}_$$.json"
+  JOB_ID="wf_${TS}_$$"
+  STARTED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  STEPS_COUNT=$(tjc_workflow_get_steps_count "$WORKFLOW_FILE")
 
-  # Build base JSON for report
-  jq -n \
-    --arg name "$WORKFLOW_NAME" \
-    --arg file "$WORKFLOW_FILE" \
-    --arg started "$STARTED_AT" \
-    '{workflow: $name, file: $file, status: "RUNNING", started_at: $started, ended_at: null, steps: []}' > "$REPORT_FILE"
+  jq -n --arg name "$NAME" --arg file "$WORKFLOW_FILE" --arg started "$STARTED_AT" \
+    --arg resumed "$RESUMED_FROM" --argjson count "$STEPS_COUNT" \
+    '{workflow:$name,file:$file,status:"RUNNING",started_at:$started,ended_at:null,resumed_from:$resumed,steps:[$count|range(0;.)|{index:.,type:"",status:"PENDING",started_at:null,ended_at:null,attempts:0,output:"",error:null}]}' >"$REPORT_FILE"
   chmod 600 "$REPORT_FILE"
 
+  # Fill immutable step metadata.
   INDEX=0
   while [ "$INDEX" -lt "$STEPS_COUNT" ]; do
-    STEP_TYPE=$(tjc_workflow_get_step_type "$WORKFLOW_FILE" "$INDEX")
-    STEP_PARAMS=$(tjc_workflow_get_step_params "$WORKFLOW_FILE" "$INDEX")
+    TYPE=$(tjc_workflow_get_step_type "$WORKFLOW_FILE" "$INDEX")
+    jq --arg type "$TYPE" --argjson idx "$INDEX" '.steps[$idx].type=$type' "$REPORT_FILE" >"$REPORT_FILE.tmp" && mv "$REPORT_FILE.tmp" "$REPORT_FILE"
+    INDEX=$((INDEX + 1))
+  done
 
-    # We do NOT log $STEP_PARAMS to protect potential secrets
-    tjc_log_info "Executing Step $INDEX: $STEP_TYPE"
-    tjc_info "  -> Step $INDEX: $STEP_TYPE [RUNNING]"
+  # Preserve completed prefix on resume.
+  if [ "$START_INDEX" -gt 0 ]; then
+    OLD_INDEX=0
+    while [ "$OLD_INDEX" -lt "$START_INDEX" ]; do
+      OLD_STATUS=$(jq -r ".steps[$OLD_INDEX].status" "$RESUME_REPORT")
+      if [ "$OLD_STATUS" = "COMPLETED" ]; then
+        OLD_OUT=$(jq -r ".steps[$OLD_INDEX].output // \"\"" "$RESUME_REPORT")
+        OLD_ATTEMPTS=$(jq -r ".steps[$OLD_INDEX].attempts // 1" "$RESUME_REPORT")
+        jq --argjson idx "$OLD_INDEX" --arg out "$OLD_OUT" --argjson attempts "$OLD_ATTEMPTS" '.steps[$idx].status="COMPLETED" | .steps[$idx].output=$out | .steps[$idx].attempts=$attempts' "$REPORT_FILE" >"$REPORT_FILE.tmp" && mv "$REPORT_FILE.tmp" "$REPORT_FILE"
+      fi
+      OLD_INDEX=$((OLD_INDEX + 1))
+    done
+  fi
 
-    STEP_STARTED=$(date +'%Y-%m-%d %H:%M:%S')
+  if command -v tjc_job_create >/dev/null 2>&1; then
+    tjc_job_create "$JOB_ID" "Workflow: $NAME" >/dev/null 2>&1 || true
+    tjc_job_set_status "$JOB_ID" QUEUED >/dev/null 2>&1 || true
+    tjc_job_set_status "$JOB_ID" RUNNING >/dev/null 2>&1 || true
+  fi
 
-    # Run the step
-    STEP_OUTPUT=""
-    STEP_STATUS="COMPLETED"
+  FINAL_STATUS=COMPLETED
+  INDEX=0
+  while [ "$INDEX" -lt "$STEPS_COUNT" ]; do
+    STATUS=$(jq -r ".steps[$INDEX].status" "$REPORT_FILE")
+    if [ "$STATUS" = "COMPLETED" ]; then INDEX=$((INDEX + 1)); continue; fi
 
-    case "$STEP_TYPE" in
-      doctor)
-        if ! STEP_OUTPUT=$(tjc_workflow_run_doctor "$STEP_PARAMS" 2>&1); then
-          STEP_STATUS="FAILED"
-        fi
-        ;;
-      create_session)
-        if ! STEP_OUTPUT=$(tjc_workflow_run_create_session "$STEP_PARAMS" 2>&1); then
-          STEP_STATUS="FAILED"
-        fi
-        ;;
-      watch_session)
-        if ! STEP_OUTPUT=$(tjc_workflow_run_watch_session "$STEP_PARAMS" 2>&1); then
-          STEP_STATUS="FAILED"
-        fi
-        ;;
-      list_activities)
-        if ! STEP_OUTPUT=$(tjc_workflow_run_list_activities "$STEP_PARAMS" 2>&1); then
-          STEP_STATUS="FAILED"
-        fi
-        ;;
-      get_pr)
-        if ! STEP_OUTPUT=$(tjc_workflow_run_get_pr "$STEP_PARAMS" 2>&1); then
-          STEP_STATUS="FAILED"
-        fi
-        ;;
-      *)
-        STEP_OUTPUT="Unknown step type: $STEP_TYPE"
-        STEP_STATUS="FAILED"
-        ;;
-    esac
+    TYPE=$(tjc_workflow_get_step_type "$WORKFLOW_FILE" "$INDEX")
+    PARAMS=$(tjc_workflow_get_step_params "$WORKFLOW_FILE" "$INDEX")
 
-    STEP_ENDED=$(date +'%Y-%m-%d %H:%M:%S')
+    if ! tjc_workflow_condition_ok "$WORKFLOW_FILE" "$INDEX" "$REPORT_FILE"; then
+      CONDITION=$(tjc_workflow_get_step_condition "$WORKFLOW_FILE" "$INDEX")
+      jq --argjson idx "$INDEX" --arg condition "$CONDITION" '.steps[$idx].status="SKIPPED" | .steps[$idx].error=("Condition not satisfied: " + $condition)' "$REPORT_FILE" >"$REPORT_FILE.tmp" && mv "$REPORT_FILE.tmp" "$REPORT_FILE"
+      INDEX=$((INDEX + 1)); continue
+    fi
 
-    # Append step report to the report file securely
-    TEMP_REPORT=$(mktemp)
-    jq --argjson idx "$INDEX" \
-       --arg type "$STEP_TYPE" \
-       --arg status "$STEP_STATUS" \
-       --arg start "$STEP_STARTED" \
-       --arg end "$STEP_ENDED" \
-       --arg out "$STEP_OUTPUT" \
-       '.steps += [{index: $idx, type: $type, status: $status, started_at: $start, ended_at: $end, output: $out}]' \
-       "$REPORT_FILE" > "$TEMP_REPORT"
-    mv "$TEMP_REPORT" "$REPORT_FILE"
-
-    if [ "$STEP_STATUS" = "COMPLETED" ]; then
-      tjc_success "  -> Step $INDEX: $STEP_TYPE [COMPLETED]"
-      tjc_log_info "Step $INDEX: $STEP_TYPE completed successfully."
-    else
-      tjc_error "  -> Step $INDEX: $STEP_TYPE [FAILED]"
-      tjc_log_error "Step $INDEX: $STEP_TYPE failed."
-      FINAL_STATUS="FAILED"
+    if ! tjc_workflow_dependencies_ok "$WORKFLOW_FILE" "$INDEX" "$REPORT_FILE"; then
+      tjc_error "Step $INDEX dependencies are not satisfied."
+      jq --argjson idx "$INDEX" '.steps[$idx].status="FAILED" | .steps[$idx].error="Dependencies are not satisfied"' "$REPORT_FILE" >"$REPORT_FILE.tmp" && mv "$REPORT_FILE.tmp" "$REPORT_FILE"
+      FINAL_STATUS=FAILED
       break
     fi
 
-    INDEX=$((INDEX + 1))
+    RETRIES=$(tjc_workflow_get_step_retry_attempts "$WORKFLOW_FILE" "$INDEX")
+    TIMEOUT=$(tjc_workflow_get_step_timeout "$WORKFLOW_FILE" "$INDEX")
+    ATTEMPT=0
+    STEP_SUCCESS=1
+    STEP_STARTED=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    while [ "$ATTEMPT" -le "$RETRIES" ]; do
+      ATTEMPT=$((ATTEMPT + 1))
+      OUTFILE="$REPORT_FILE.step.$INDEX.$ATTEMPT"
+      tjc_log_info "Executing workflow step $INDEX ($TYPE), attempt $ATTEMPT."
+      if tjc_workflow_run_step "$TYPE" "$PARAMS" "$TIMEOUT" "$OUTFILE"; then
+        STEP_SUCCESS=0
+        break
+      fi
+      [ "$ATTEMPT" -le "$RETRIES" ] && sleep 1
+    done
+
+    OUTPUT=$(cat "$OUTFILE" 2>/dev/null || true)
+    rm -f "$OUTFILE"
+    STEP_ENDED=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    if [ "$STEP_SUCCESS" -eq 0 ]; then
+      jq --argjson idx "$INDEX" --arg start "$STEP_STARTED" --arg end "$STEP_ENDED" --arg out "$OUTPUT" --argjson attempts "$ATTEMPT" '.steps[$idx].status="COMPLETED" | .steps[$idx].started_at=$start | .steps[$idx].ended_at=$end | .steps[$idx].output=$out | .steps[$idx].attempts=$attempts' "$REPORT_FILE" >"$REPORT_FILE.tmp" && mv "$REPORT_FILE.tmp" "$REPORT_FILE"
+      INDEX=$((INDEX + 1))
+    else
+      jq --argjson idx "$INDEX" --arg start "$STEP_STARTED" --arg end "$STEP_ENDED" --arg out "$OUTPUT" --argjson attempts "$ATTEMPT" '.steps[$idx].status="FAILED" | .steps[$idx].started_at=$start | .steps[$idx].ended_at=$end | .steps[$idx].output=$out | .steps[$idx].error="Step execution failed" | .steps[$idx].attempts=$attempts' "$REPORT_FILE" >"$REPORT_FILE.tmp" && mv "$REPORT_FILE.tmp" "$REPORT_FILE"
+      FINAL_STATUS=FAILED
+      break
+    fi
   done
 
-  # Handle any remaining steps if cancelled/failed
-  while [ "$INDEX" -lt "$STEPS_COUNT" ]; do
-    STEP_TYPE=$(tjc_workflow_get_step_type "$WORKFLOW_FILE" "$INDEX")
-    tjc_warn "  -> Step $INDEX: $STEP_TYPE [CANCELLED]"
-    tjc_log_warn "Step $INDEX: $STEP_TYPE cancelled because of previous step failure."
+  ENDED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  jq --arg status "$FINAL_STATUS" --arg ended "$ENDED_AT" '.status=$status | .ended_at=$ended' "$REPORT_FILE" >"$REPORT_FILE.tmp" && mv "$REPORT_FILE.tmp" "$REPORT_FILE"
 
-    TEMP_REPORT=$(mktemp)
-    jq --argjson idx "$INDEX" \
-       --arg type "$STEP_TYPE" \
-       '.steps += [{index: $idx, type: $type, status: "CANCELLED", started_at: null, ended_at: null, output: "Skipped due to prior failure"}]' \
-       "$REPORT_FILE" > "$TEMP_REPORT"
-    mv "$TEMP_REPORT" "$REPORT_FILE"
-
-    INDEX=$((INDEX + 1))
-  done
-
-  ENDED_AT=$(date +'%Y-%m-%d %H:%M:%S')
-  TEMP_REPORT=$(mktemp)
-  jq --arg status "$FINAL_STATUS" \
-     --arg ended "$ENDED_AT" \
-     '.status = $status | .ended_at = $ended' \
-     "$REPORT_FILE" > "$TEMP_REPORT"
-  mv "$TEMP_REPORT" "$REPORT_FILE"
-
-  # Log final results
-  tjc_log_info "Workflow $WORKFLOW_NAME finished with status: $FINAL_STATUS"
-  if [ "$FINAL_STATUS" = "COMPLETED" ]; then
-    tjc_success "Workflow '$WORKFLOW_NAME' completed successfully."
-    return 0
-  else
-    tjc_error "Workflow '$WORKFLOW_NAME' failed."
-    return 1
+  if command -v tjc_job_set_result >/dev/null 2>&1; then
+    tjc_job_set_result "$JOB_ID" "$REPORT_FILE" >/dev/null 2>&1 || true
+    if [ "$FINAL_STATUS" = "COMPLETED" ]; then
+      tjc_job_set_status "$JOB_ID" COMPLETED >/dev/null 2>&1 || true
+    else
+      tjc_job_set_status "$JOB_ID" FAILED "Workflow failed" >/dev/null 2>&1 || true
+    fi
   fi
+
+  if [ "$FINAL_STATUS" = "COMPLETED" ]; then
+    tjc_success "Workflow '$NAME' completed successfully."
+    tjc_info "Report: $REPORT_FILE"
+    return 0
+  fi
+  tjc_error "Workflow '$NAME' failed."
+  tjc_info "Report: $REPORT_FILE"
+  return 1
 }
 
-# --- Step Implementations (Internal helpers) ---
-
-# Usage: tjc_workflow_run_doctor <params>
+# Built-in safe step implementations.
 tjc_workflow_run_doctor() {
-  PARAMS="$1"
-  echo "Running TJC Doctor check..."
-
   MISSING=0
   for CMD in jq yq shellcheck; do
-    if tjc_command_exists "$CMD"; then
-      echo "  [OK] $CMD is installed"
-    else
-      echo "  [FAIL] $CMD is missing!"
-      MISSING=$((MISSING + 1))
-    fi
+    if tjc_command_exists "$CMD"; then echo "[OK] $CMD is installed"; else echo "[FAIL] $CMD is missing"; MISSING=$((MISSING + 1)); fi
   done
-
-  CONFIG_DIR=$(tjc_config_dir)
-  echo "  Config directory: $CONFIG_DIR"
-
-  if [ "$MISSING" -gt 0 ]; then
-    echo "Doctor check failed with $MISSING missing dependencies."
-    return 1
-  fi
-  echo "All dependencies and configuration paths are healthy."
-  return 0
+  echo "Config directory: $(tjc_config_dir)"
+  [ "$MISSING" -eq 0 ] || return 1
 }
 
-# Usage: tjc_workflow_run_create_session <params>
 tjc_workflow_run_create_session() {
-  PARAMS="$1"
-  SESSION_NAME=$(echo "$PARAMS" | jq -r '.session_name // "default_session"')
-
-  echo "Initializing session: $SESSION_NAME"
-  SESS_ID="sess_$(date +%s)"
-
-  SESS_DIR="$(tjc_config_dir)/sessions"
-  if [ ! -d "$SESS_DIR" ]; then
-    mkdir -p "$SESS_DIR"
-  fi
-
-  echo "$SESS_ID" > "${SESS_DIR}/last_session"
-  echo "Created session $SESSION_NAME successfully with ID: $SESS_ID"
-  return 0
+  PARAMS="$1"; SESSION_NAME=$(echo "$PARAMS" | jq -r '.session_name // "default_session"')
+  SESS_ID="sess_$(date +%s)_$$"; SESS_DIR="$(tjc_config_dir)/sessions"; mkdir -p "$SESS_DIR"; chmod 700 "$SESS_DIR"; printf '%s\n' "$SESS_ID" >"$SESS_DIR/last_session"; echo "Created session $SESSION_NAME successfully with ID: $SESS_ID"
 }
 
-# Usage: tjc_workflow_run_watch_session <params>
 tjc_workflow_run_watch_session() {
-  PARAMS="$1"
-  SESS_DIR="$(tjc_config_dir)/sessions"
-
-  SESS_ID=$(echo "$PARAMS" | jq -r '.session_id // ""')
-  if [ -z "$SESS_ID" ] || [ "$SESS_ID" = "null" ]; then
-    if [ -f "${SESS_DIR}/last_session" ]; then
-      SESS_ID=$(cat "${SESS_DIR}/last_session")
-    fi
-  fi
-
-  if [ -z "$SESS_ID" ] || [ "$SESS_ID" = "null" ]; then
-    echo "Error: No active session found to watch. Please create a session first."
-    return 1
-  fi
-
-  echo "Watching Jules session: $SESS_ID"
-  echo "  [0%] Checking session state..."
-  echo "  [50%] Waiting for Jules interaction..."
-  echo "  [100%] Session is completed."
-  return 0
+  PARAMS="$1"; SESS_DIR="$(tjc_config_dir)/sessions"; SESS_ID=$(echo "$PARAMS" | jq -r '.session_id // ""')
+  if [ -z "$SESS_ID" ] && [ -f "$SESS_DIR/last_session" ]; then SESS_ID=$(cat "$SESS_DIR/last_session"); fi
+  [ -n "$SESS_ID" ] || { echo 'No active session found.'; return 1; }
+  echo "Watching Jules session: $SESS_ID"; echo '[100%] Session is completed.'
 }
 
-# Usage: tjc_workflow_run_list_activities <params>
 tjc_workflow_run_list_activities() {
-  PARAMS="$1"
-  echo "Retrieving activity stream from Jules..."
-  echo "Activities:"
-  echo "  - timestamp: $(date +'%Y-%m-%d %H:%M:%S')"
-  echo "    type: commit_review"
-  echo "    user: Jules Agent"
-  echo "    status: SUCCESS"
-  return 0
+  echo 'Retrieving activity stream from Jules...'; echo "timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)"; echo 'status: SUCCESS'
 }
 
-# Usage: tjc_workflow_run_get_pr <params>
 tjc_workflow_run_get_pr() {
-  PARAMS="$1"
-  PR_NUMBER=$(echo "$PARAMS" | jq -r '.pr_number // ""')
-
-  if [ -z "$PR_NUMBER" ] || [ "$PR_NUMBER" = "null" ]; then
-    echo "Error: 'pr_number' parameter is required for get_pr step."
-    return 1
-  fi
-
-  echo "Retrieving Pull Request #${PR_NUMBER} info from GitHub..."
-
-  # Real API integration if internet is accessible, otherwise gracefully mock
+  PARAMS="$1"; PR_NUMBER=$(echo "$PARAMS" | jq -r '.pr_number // ""'); echo "$PR_NUMBER" | grep -Eq '^[1-9][0-9]*$' || return 1
   if tjc_command_exists curl; then
-    PR_DATA=$(curl -s "https://api.github.com/repos/yusi20006-max/TJC/issues/${PR_NUMBER}")
-    PR_TITLE=$(echo "$PR_DATA" | jq -r '.title // empty')
-
-    if [ -n "$PR_TITLE" ]; then
-      echo "  PR Title: $PR_TITLE"
-      echo "  PR URL: https://github.com/yusi20006-max/TJC/pull/${PR_NUMBER}"
-      return 0
-    fi
+    DATA=$(curl -fsS --max-time 15 "https://api.github.com/repos/yusi20006-max/TJC/issues/$PR_NUMBER" 2>/dev/null || true)
+    TITLE=$(echo "$DATA" | jq -r '.title // empty' 2>/dev/null || true)
+    [ -n "$TITLE" ] && { echo "PR Title: $TITLE"; echo "PR URL: https://github.com/yusi20006-max/TJC/pull/$PR_NUMBER"; return 0; }
   fi
-
-  # Fallback to Mock
-  echo "  PR Title: Mock implementation of PR #${PR_NUMBER}"
-  echo "  PR URL: https://github.com/yusi20006-max/TJC/pull/${PR_NUMBER}"
-  return 0
+  echo "PR #$PR_NUMBER could not be retrieved."; return 1
 }
