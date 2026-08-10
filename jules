@@ -21,6 +21,13 @@ BASE_DIR=$(CDPATH="" cd -- "$(dirname -- "$SCRIPT_PATH")" && pwd)
 . "$BASE_DIR/lib/logger.sh"
 # shellcheck disable=SC1091
 . "$BASE_DIR/lib/provider.sh"
+# shellcheck disable=SC1091
+. "$BASE_DIR/lib/audit.sh"
+
+TJC_CORRELATION_ID="${TJC_CORRELATION_ID:-corr_$(date -u +%Y%m%dT%H%M%SZ)_$$}"
+export TJC_CORRELATION_ID
+tjc_audit_event cli_start command="${1:-help}" >/dev/null 2>&1 || true
+
 COMMAND="${1:-help}"
 case "$COMMAND" in
   help|-h|--help) . "$BASE_DIR/commands/help.sh"; tjc_help "$BASE_DIR" ;;
@@ -30,5 +37,7 @@ case "$COMMAND" in
   job) . "$BASE_DIR/commands/job.sh"; [ "$#" -gt 0 ] && shift; tjc_job_command "$@" ;;
   queue) . "$BASE_DIR/commands/queue.sh"; [ "$#" -gt 0 ] && shift; tjc_queue_command "$@" ;;
   mcp) . "$BASE_DIR/commands/mcp.sh"; [ "$#" -gt 0 ] && shift; tjc_mcp_command "$@" ;;
+  audit) . "$BASE_DIR/commands/audit.sh"; [ "$#" -gt 0 ] && shift; tjc_audit_command "$@" ;;
+  logs) . "$BASE_DIR/commands/logs.sh"; [ "$#" -gt 0 ] && shift; tjc_logs_command "$@" ;;
   *) tjc_error "Unknown command: $COMMAND"; . "$BASE_DIR/commands/help.sh"; tjc_help "$BASE_DIR"; exit 1 ;;
 esac
