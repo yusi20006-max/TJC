@@ -3,7 +3,6 @@
 # TJC Workflow Validator
 # Strict schema validation for safe, deterministic workflow execution.
 
-# Public: tjc_workflow_validate <workflow_file>
 tjc_workflow_validate() {
   FILE="${1:-}"
 
@@ -24,7 +23,6 @@ tjc_workflow_validate() {
   if ! yq -e '.steps | type == "!!seq" and length > 0' "$FILE" >/dev/null 2>&1; then
     tjc_error "'steps' must be a non-empty array."; return 1
   fi
-
   if ! yq -e '.variables // {} | type == "!!map"' "$FILE" >/dev/null 2>&1; then
     tjc_error "'variables' must be a mapping."; return 1
   fi
@@ -48,7 +46,7 @@ tjc_workflow_validate() {
     for KEY in $STEP_KEYS; do
       case " $ALLOWED depends_on condition retry timeout " in
         *" $KEY "*) ;;
-        *) tjc_error "Step $INDEX has unknown parameter '$KEY'."; return 1 ;;
+        *) tjc_error "Step $INDEX has unknown parameter '$KEY'."; return 1;;
       esac
     done
 
@@ -61,7 +59,6 @@ tjc_workflow_validate() {
 
     RETRY=$(tjc_workflow_get_step_retry_attempts "$FILE" "$INDEX")
     [ "$RETRY" -le 10 ] || { tjc_error "Step $INDEX retry attempts cannot exceed 10."; return 1; }
-
     TIMEOUT=$(tjc_workflow_get_step_timeout "$FILE" "$INDEX")
     [ "$TIMEOUT" -le 86400 ] || { tjc_error "Step $INDEX timeout cannot exceed 86400 seconds."; return 1; }
 
@@ -82,13 +79,12 @@ tjc_workflow_validate() {
     INDEX=$((INDEX + 1))
   done
 
-  # Validate dependency references and reject cycles with a DFS implemented by jq.
   if ! yq -o=json '.steps' "$FILE" | jq -e '
     def deps($i): (.[$i].depends_on // []) | map(if type == "number" then . else (try tonumber catch -1) end);
     def visit($i; $path):
       if ($i < 0 or $i >= length) then false
       elif ($path | index($i)) != null then false
-      else any(deps($i)[]; visit(. ; ($path + [$i]))) | not
+      else all(deps($i)[]; visit(. ; ($path + [$i])))
       end;
     all(range(0; length); visit(. ; []))
   ' >/dev/null 2>&1; then
