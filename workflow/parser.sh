@@ -1,72 +1,73 @@
 #!/bin/sh
 
 # TJC Workflow Parser
-# Parses YAML/JSON workflow files using yq and jq.
-# Keeps the workflow module decoupled from execution.
+# Read-only helpers for YAML/JSON workflow definitions.
 
-# Public function: tjc_workflow_get_name
-# Usage: tjc_workflow_get_name <workflow_file>
-# Description: Extracts the 'name' field from a workflow definition.
-# Returns: String name on success, or empty on failure. Exit code 0 on success, non-zero on failure.
 tjc_workflow_get_name() {
-  FILE="$1"
-  if [ -z "$FILE" ]; then
-    return 1
-  fi
+  FILE="${1:-}"
+  [ -n "$FILE" ] || return 1
   yq -r '.name // ""' "$FILE" 2>/dev/null
 }
 
-# Public function: tjc_workflow_get_description
-# Usage: tjc_workflow_get_description <workflow_file>
-# Description: Extracts the 'description' field from a workflow definition.
-# Returns: String description on success, or empty on failure. Exit code 0 on success, non-zero on failure.
 tjc_workflow_get_description() {
-  FILE="$1"
-  if [ -z "$FILE" ]; then
-    return 1
-  fi
+  FILE="${1:-}"
+  [ -n "$FILE" ] || return 1
   yq -r '.description // ""' "$FILE" 2>/dev/null
-  return 0
 }
 
-# Public function: tjc_workflow_get_steps_count
-# Usage: tjc_workflow_get_steps_count <workflow_file>
-# Description: Extracts the total number of steps from a workflow definition.
-# Returns: Non-negative integer count. Exit code 0 on success, non-zero on failure.
 tjc_workflow_get_steps_count() {
-  FILE="$1"
-  if [ -z "$FILE" ] || [ ! -f "$FILE" ]; then
-    printf '0\n'
-    return 1
-  fi
-  yq '.steps | length' "$FILE" 2>/dev/null || printf '0\n'
-  return 0
+  FILE="${1:-}"
+  [ -f "$FILE" ] || { printf '0\n'; return 1; }
+  yq '.steps | length' "$FILE" 2>/dev/null
 }
 
-# Public function: tjc_workflow_get_step_type
-# Usage: tjc_workflow_get_step_type <workflow_file> <step_index>
-# Description: Extracts the 'type' field from a step at the given index.
-# Returns: String step type on success. Exit code 0 on success, non-zero on failure.
 tjc_workflow_get_step_type() {
-  FILE="$1"
-  INDEX="$2"
-  if [ -z "$FILE" ] || [ -z "$INDEX" ]; then
-    return 1
-  fi
+  FILE="${1:-}"
+  INDEX="${2:-}"
+  [ -n "$FILE" ] && [ -n "$INDEX" ] || return 1
   yq -r ".steps[$INDEX].type // \"\"" "$FILE" 2>/dev/null
-  return 0
 }
 
-# Public function: tjc_workflow_get_step_params
-# Usage: tjc_workflow_get_step_params <workflow_file> <step_index>
-# Description: Extracts the parameters of a step at the given index as a compact JSON string.
-# Returns: Compact JSON string of the step parameters. Exit code 0 on success, non-zero on failure.
 tjc_workflow_get_step_params() {
-  FILE="$1"
-  INDEX="$2"
-  if [ -z "$FILE" ] || [ -z "$INDEX" ]; then
-    return 1
-  fi
+  FILE="${1:-}"
+  INDEX="${2:-}"
+  [ -n "$FILE" ] && [ -n "$INDEX" ] || return 1
   yq -c ".steps[$INDEX] // {}" "$FILE" 2>/dev/null
-  return 0
+}
+
+tjc_workflow_get_step_dependencies() {
+  FILE="${1:-}"
+  INDEX="${2:-}"
+  yq -r ".steps[$INDEX].depends_on // [] | .[]" "$FILE" 2>/dev/null
+}
+
+tjc_workflow_get_step_condition() {
+  FILE="${1:-}"
+  INDEX="${2:-}"
+  yq -r ".steps[$INDEX].condition // \"on_success\"" "$FILE" 2>/dev/null
+}
+
+tjc_workflow_get_step_retry_attempts() {
+  FILE="${1:-}"
+  INDEX="${2:-}"
+  VALUE=$(yq -r ".steps[$INDEX].retry.attempts // 0" "$FILE" 2>/dev/null)
+  case "$VALUE" in
+    *[!0-9]*|'') printf '0\n' ;;
+    *) printf '%s\n' "$VALUE" ;;
+  esac
+}
+
+tjc_workflow_get_step_timeout() {
+  FILE="${1:-}"
+  INDEX="${2:-}"
+  VALUE=$(yq -r ".steps[$INDEX].timeout.seconds // 0" "$FILE" 2>/dev/null)
+  case "$VALUE" in
+    *[!0-9]*|'') printf '0\n' ;;
+    *) printf '%s\n' "$VALUE" ;;
+  esac
+}
+
+tjc_workflow_get_variables() {
+  FILE="${1:-}"
+  yq -c '.variables // {}' "$FILE" 2>/dev/null
 }
