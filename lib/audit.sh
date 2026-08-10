@@ -1,7 +1,7 @@
 #!/bin/sh
 
 # TJC structured audit/event layer.
-# JSONL storage; secrets are redacted before persistence.
+# JSONL storage; sensitive fields are redacted before persistence.
 
 tjc_audit_dir() {
   if command -v tjc_config_dir >/dev/null 2>&1; then printf '%s/audit\n' "$(tjc_config_dir)"; else printf '%s/.config/tjc/audit\n' "$HOME"; fi
@@ -35,7 +35,10 @@ tjc_audit_event() {
   for FIELD in "$@"; do
     KEY=${FIELD%%=*}; VALUE=${FIELD#*=}
     echo "$KEY" | grep -Eq '^[A-Za-z_][A-Za-z0-9_]*$' || continue
-    SAFE=$(tjc_audit_redact "$VALUE")
+    case "$KEY" in
+      *key*|*token*|*secret*|*password*|*authorization*) SAFE='[REDACTED]' ;;
+      *) SAFE=$(tjc_audit_redact "$VALUE") ;;
+    esac
     JSON=$(printf '%s' "$JSON" | jq --arg key "$KEY" --arg value "$SAFE" '. + {($key):$value}') || return 1
   done
   printf '%s\n' "$JSON" >>"$(tjc_audit_dir)/events.jsonl"
