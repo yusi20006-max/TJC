@@ -42,5 +42,6 @@ case "$COMMAND" in
   audit) . "$BASE_DIR/commands/audit.sh"; [ "$#" -gt 0 ] && shift; tjc_audit_command "$@" ;;
   logs) . "$BASE_DIR/commands/logs.sh"; [ "$#" -gt 0 ] && shift; tjc_logs_command "$@" ;;
   policy) . "$BASE_DIR/commands/policy.sh"; [ "$#" -gt 0 ] && shift; tjc_policy_command "$@" ;;
+  plugin) . "$BASE_DIR/commands/plugin.sh"; [ "$#" -gt 0 ] && shift; tjc_plugin_command "$@" ;;
   *) tjc_error "Unknown command: $COMMAND"; . "$BASE_DIR/commands/help.sh"; tjc_help "$BASE_DIR"; exit 1 ;;
 esac
