@@ -24,17 +24,25 @@ tjc_jules_request() {
     TMP_HEADERS=$(mktemp)
     if [ "$METHOD" = "GET" ]; then
       CODE=$(curl -sS --connect-timeout 10 --max-time 30 -o "$TMP_BODY" -D "$TMP_HEADERS" -w '%{http_code}' -H "x-goog-api-key: $JULES_API_KEY" -H 'Accept: application/json' "$URL" 2>/dev/null) || CODE=000
+    elif [ -n "$BODY" ]; then
+      CODE=$(curl -sS --connect-timeout 10 --max-time 30 -o "$TMP_BODY" -D "$TMP_HEADERS" -w '%{http_code}' -X "$METHOD" -H "x-goog-api-key: $JULES_API_KEY" -H 'Content-Type: application/json' -H 'Accept: application/json' --data "$BODY" "$URL" 2>/dev/null) || CODE=000
     else
-      CODE=$(curl -sS --connect-timeout 10 --max-time 30 -o "$TMP_BODY" -D "$TMP_HEADERS" -w '%{http_code}' -X "$METHOD" -H "x-goog-api-key: $JULES_API_KEY" -H 'Content-Type: application/json' -H 'Accept: application/json' ${BODY:+--data "$BODY"} "$URL" 2>/dev/null) || CODE=000
+      CODE=$(curl -sS --connect-timeout 10 --max-time 30 -o "$TMP_BODY" -D "$TMP_HEADERS" -w '%{http_code}' -X "$METHOD" -H "x-goog-api-key: $JULES_API_KEY" -H 'Content-Type: application/json' -H 'Accept: application/json' "$URL" 2>/dev/null) || CODE=000
     fi
 
     case "$CODE" in
       200|201|202|204)
         cat "$TMP_BODY"; rm -f "$TMP_BODY" "$TMP_HEADERS"; return 0;;
-      400) rm -f "$TMP_BODY" "$TMP_HEADERS"; echo 'Error: Invalid Jules API request.' >&2; return 1;;
-      401|403) rm -f "$TMP_BODY" "$TMP_HEADERS"; echo 'Error: Invalid Jules API key.' >&2; return 1;;
-      500|502|503|504|000) rm -f "$TMP_BODY" "$TMP_HEADERS"; [ "$ATTEMPT" -lt 3 ] && sleep "$ATTEMPT"; ATTEMPT=$((ATTEMPT + 1); continue;;
-      *) rm -f "$TMP_BODY" "$TMP_HEADERS"; echo 'Error: Jules API request failed.' >&2; return 1;;
+      400)
+        rm -f "$TMP_BODY" "$TMP_HEADERS"; echo 'Error: Invalid Jules API request.' >&2; return 1;;
+      401|403)
+        rm -f "$TMP_BODY" "$TMP_HEADERS"; echo 'Error: Invalid Jules API key.' >&2; return 1;;
+      500|502|503|504|000)
+        rm -f "$TMP_BODY" "$TMP_HEADERS"
+        if [ "$ATTEMPT" -lt 3 ]; then sleep "$ATTEMPT"; ATTEMPT=$((ATTEMPT + 1)); continue; fi
+        ;;
+      *)
+        rm -f "$TMP_BODY" "$TMP_HEADERS"; echo 'Error: Jules API request failed.' >&2; return 1;;
     esac
   done
   echo 'Error: Jules API temporarily unavailable.' >&2
