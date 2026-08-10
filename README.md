@@ -1,111 +1,143 @@
 # TJC (Termux Jules CLI)
 
-TJC is a secure, POSIX-shell-based CLI platform for Google Jules API workflows, fully compatible with standard Linux and Android via Termux.
+TJC is a secure, POSIX-shell-based CLI platform for Google Jules API workflows, compatible with standard Linux and Android via Termux.
 
 ---
 
 ## Documentation Directory
 
-Explore the complete TJC production manual:
-- **[Installation & Prerequisites Guide](docs/INSTALLATION.md)** — Comprehensive installation and platform troubleshooting.
-- **[Workflow Engine Manual](docs/WORKFLOWS.md)** — Schema declarations, parameters, and reporting details.
-- **[Scheduler System Guide](docs/SCHEDULER.md)** — Running non-daemon cron tasks, schedules, and automatic triggers.
-- **[Plugin & Extension System](docs/PLUGINS.md)** — Guide on writing custom workflow steps and CLI commands.
-- **[Testing & Verification Guide](docs/TESTING.md)** — Custom testing framework, assertions, and linting guidelines.
-- **[Development Manual](docs/DEVELOPMENT.md)** — Architectural standards, coding styles, and developer checks.
+- **[Installation Guide](docs/INSTALLATION.md)**
+- **[Workflow Engine](docs/WORKFLOWS.md)**
+- **[Job System](docs/JOBS.md)**
+- **[Scheduler System](docs/SCHEDULER.md)**
+- **[Plugin System](docs/PLUGINS.md)**
+- **[Testing Guide](docs/TESTING.md)**
+- **[Development Manual](docs/DEVELOPMENT.md)**
 
 ---
 
-## Phase 4 Features
+## TJC v2 Architecture
 
-### 1. Workflow Engine
-Chain multiple automation steps into modular, secure, robust execution definitions. Workflows are declared in YAML/JSON, strictly validated to prevent command injection or directory traversal, and track detailed reports.
+TJC v2 introduces a unified execution model:
 
-For full schema and usage details, see [docs/WORKFLOWS.md](docs/WORKFLOWS.md).
+```text
+CLI
+ |
+ +-- Configuration / Authentication
+ |
+ +-- Job System
+ |     |
+ |     +-- Workflow Engine
+ |     +-- Scheduler
+ |     +-- Future Queue / Workers
+ |
+ +-- Provider Layer
+ |     |
+ |     +-- Jules
+ |     +-- Future Providers
+ |
+ +-- Future MCP / Policy / Observability layers
+```
 
-**Example Workflow File (`sync.yml`):**
+The Job System provides persistent lifecycle tracking for long-running operations. The Workflow Engine uses it as the execution abstraction while retaining the safe v1 step boundary.
+
+## Workflow Engine v2
+
+Workflows are declarative YAML/JSON definitions. They are validated before execution and never expose a generic shell execution primitive.
+
+Supported v2 capabilities include:
+
+- dependency-aware steps
+- conditional execution
+- bounded retries
+- bounded timeouts
+- workflow variables
+- structured execution reports
+- resume from a previous report
+- Job System integration
+
+Example:
+
 ```yaml
-name: "System Sync and Check"
+name: "Production Review"
+variables:
+  environment: production
 steps:
   - type: doctor
-  - type: create_session
-    session_name: "auto_sync"
-  - type: watch_session
   - type: list_activities
+    depends_on: [0]
+    condition: "var:environment=production"
+    retry:
+      attempts: 2
+    timeout:
+      seconds: 30
   - type: get_pr
-    pr_number: 16
+    pr_number: 23
+    depends_on: [1]
 ```
 
-**Commands:**
-- `tjc workflow run <file.yml>`: Validates and runs a workflow step-by-step.
-- `tjc workflow list`: Summarizes all workflow execution histories.
-- `tjc workflow show <report_file.json>`: Displays step-by-step outputs and statuses.
-
----
-
-### 2. Scheduler System
-Persistently configure and run TJC workflows on a schedule without memory-heavy background daemons, fully compatible with cron, Termux:Boot, and Termux:Tasker.
-
-For full documentation and integration guides, see [docs/SCHEDULER.md](docs/SCHEDULER.md).
-
-**Commands:**
-- `tjc schedule add <id> <workflow_file.yml> [expr]`: Adds a scheduled workflow.
-- `tjc schedule list`: Lists configured active schedules.
-- `tjc schedule remove <id>`: Unregisters a scheduled job.
-- `tjc schedule run [id]`: Manually triggers job(s) immediately.
-- `tjc schedule run-pending`: Automatically triggers jobs whose interval has elapsed since the last run.
-- `tjc schedule history <id>`: Displays comprehensive job execution logs.
-
----
-
-## Foundation Commands
-- `tjc help`: Display help information.
-- `tjc version`: Display version information.
-
-## Quick Start Scenarios
-
-Here are two quick practical scenarios showing how to use TJC's core capabilities.
-
-### Scenario 1: Running a One-off Dependency and PR Audit
-1. Create a `dev-audit.yml` file:
-   ```yaml
-   name: "Developer Audit"
-   steps:
-     - type: doctor
-     - type: get_pr
-       pr_number: 16
-   ```
-2. Run the audit workflow via CLI:
-   ```sh
-   tjc workflow run dev-audit.yml
-   ```
-3. View the generated JSON report:
-   ```sh
-   tjc workflow list
-   ```
-
-### Scenario 2: Registering and Manually Triggering a Scheduled Task
-1. Register a task to check dependencies hourly:
-   ```sh
-   tjc schedule add hourly_doctor dev-audit.yml hourly
-   ```
-2. Manually execute the scheduled task immediately:
-   ```sh
-   tjc schedule run hourly_doctor
-   ```
-3. Check the execution logs of the schedule:
-   ```sh
-   tjc schedule history hourly_doctor
-   ```
-
-## Installation & Uninstallation
-
-For complete system setup and troubleshooting details, please refer to the **[Installation Guide](docs/INSTALLATION.md)**.
+Commands:
 
 ```sh
-# Install TJC with default prefix ($HOME/.local)
-./install.sh
+tjc workflow validate workflow.yml
+tjc workflow run workflow.yml
+tjc workflow list
+tjc workflow show report.json
+tjc workflow resume report.json
+```
 
-# Uninstall TJC
+See [docs/WORKFLOWS.md](docs/WORKFLOWS.md) for the complete schema and security model.
+
+## Job System
+
+The Job System provides persistent state for long-running operations.
+
+Supported states:
+
+`PENDING` → `QUEUED` → `RUNNING` → `COMPLETED`
+
+with failure, cancellation, and retry paths.
+
+Commands include:
+
+```sh
+tjc job create <id> [description]
+tjc job list
+tjc job show <id>
+tjc job status <id>
+tjc job cancel <id>
+tjc job retry <id>
+```
+
+See [docs/JOBS.md](docs/JOBS.md).
+
+## Scheduler System
+
+Persistently configure and run TJC workflows on schedules without requiring a memory-heavy permanent daemon.
+
+```sh
+tjc schedule add <id> <workflow_file.yml> [expr]
+tjc schedule list
+tjc schedule remove <id>
+tjc schedule run [id]
+tjc schedule run-pending
+tjc schedule history <id>
+```
+
+See [docs/SCHEDULER.md](docs/SCHEDULER.md).
+
+## Foundation Commands
+
+```sh
+tjc help
+tjc version
+```
+
+## Installation
+
+```sh
+./install.sh
 ./uninstall.sh
 ```
+
+For platform setup and troubleshooting see [docs/INSTALLATION.md](docs/INSTALLATION.md).
