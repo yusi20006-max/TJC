@@ -25,6 +25,7 @@ jobs:
         run: |
           set -e
           find . -type f -name '*.sh' -print0 | xargs -0 -r -n1 bash -n
+          find . -type f -name '*.sh' -print0 | xargs -0 -r -n1 sh -n
 
       - name: ShellCheck
         run: |
