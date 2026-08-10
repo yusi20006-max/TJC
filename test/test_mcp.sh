@@ -3,7 +3,8 @@ set -eu
 
 BASE_DIR=$(pwd)
 export BASE_DIR
-export TJC_CONFIG_DIR=$(mktemp -d)
+TJC_CONFIG_DIR=$(mktemp -d)
+export TJC_CONFIG_DIR
 
 INPUT=$(cat <<'EOF'
 {"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}
