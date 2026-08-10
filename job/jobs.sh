@@ -1,7 +1,8 @@
 #!/bin/sh
-
 # TJC Job System Foundation
 # Persistent, POSIX-shell-compatible lifecycle management for long-running operations.
+# These status constants are part of the sourced module's public API.
+# shellcheck disable=SC2034
 
 TJC_JOB_PENDING="PENDING"
 TJC_JOB_QUEUED="QUEUED"
@@ -13,7 +14,7 @@ TJC_JOB_RETRYING="RETRYING"
 
 TJC_JOB_LOCK_TIMEOUT="${TJC_JOB_LOCK_TIMEOUT:-5}"
 
- tjc_job_dir() {
+tjc_job_dir() {
   if command -v tjc_config_dir >/dev/null 2>&1; then
     printf '%s/jobs\n' "$(tjc_config_dir)"
   else
