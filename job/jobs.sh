@@ -25,6 +25,10 @@ tjc_job_ensure_dir() {
     mkdir -p "$DIR" || return 1
   fi
   chmod 700 "$DIR" 2>/dev/null || true
+  if [ ! -d "$DIR/.locks" ]; then
+    mkdir -p "$DIR/.locks" || return 1
+    chmod 700 "$DIR/.locks" 2>/dev/null || true
+  fi
 }
 
 tjc_job_valid_id() {
@@ -38,6 +42,27 @@ tjc_job_path() {
 
 tjc_job_now() {
   date -u '+%Y-%m-%dT%H:%M:%SZ'
+}
+
+tjc_job_lock() {
+  ID="$1"
+  tjc_job_ensure_dir || return 1
+  LOCK="$(tjc_job_dir)/.locks/$ID.lock"
+  ATTEMPT=0
+  while ! mkdir "$LOCK" 2>/dev/null; do
+    ATTEMPT=$((ATTEMPT + 1))
+    if [ "$ATTEMPT" -ge 50 ]; then
+      echo "Timed out waiting for Job lock '$ID'." >&2
+      return 1
+    fi
+    sleep 0.1
+  done
+  printf '%s\n' "$LOCK"
+}
+
+tjc_job_unlock() {
+  LOCK="$1"
+  rmdir "$LOCK" 2>/dev/null || true
 }
 
 tjc_job_write_atomic() {
@@ -59,7 +84,9 @@ tjc_job_create() {
   fi
   tjc_job_ensure_dir || return 1
   PATHNAME=$(tjc_job_path "$ID") || return 1
+  LOCK=$(tjc_job_lock "$ID") || return 1
   if [ -e "$PATHNAME" ]; then
+    tjc_job_unlock "$LOCK"
     echo "Job '$ID' already exists." >&2
     return 1
   fi
@@ -68,8 +95,14 @@ tjc_job_create() {
     --arg id "$ID" \
     --arg description "$DESCRIPTION" \
     --arg created "$NOW" \
-    '{id:$id,description:$description,status:"PENDING",created_at:$created,updated_at:$created,started_at:null,completed_at:null,attempts:0,result:null,error:null}') || return 1
-  tjc_job_write_atomic "$PATHNAME" "$JSON"
+    '{id:$id,description:$description,status:"PENDING",created_at:$created,updated_at:$created,started_at:null,completed_at:null,attempts:0,result:null,error:null}') || {
+      tjc_job_unlock "$LOCK"
+      return 1
+    }
+  RET=0
+  tjc_job_write_atomic "$PATHNAME" "$JSON" || RET=1
+  tjc_job_unlock "$LOCK"
+  return "$RET"
 }
 
 tjc_job_exists() {
@@ -97,25 +130,63 @@ tjc_job_set_status() {
     PENDING|QUEUED|RUNNING|COMPLETED|FAILED|CANCELLED|RETRYING) ;;
     *) echo "Invalid Job status." >&2; return 1 ;;
   esac
-  tjc_job_exists "$ID" || { echo "Job '$ID' not found or is corrupt." >&2; return 1; }
   PATHNAME=$(tjc_job_path "$ID") || return 1
-  CURRENT=$(jq -r '.status' "$PATHNAME") || return 1
+  LOCK=$(tjc_job_lock "$ID") || return 1
+  if ! tjc_job_exists "$ID"; then
+    tjc_job_unlock "$LOCK"
+    echo "Job '$ID' not found or is corrupt." >&2
+    return 1
+  fi
+  CURRENT=$(jq -r '.status' "$PATHNAME") || {
+    tjc_job_unlock "$LOCK"
+    return 1
+  }
   case "$CURRENT:$NEW_STATUS" in
     PENDING:QUEUED|PENDING:CANCELLED|QUEUED:RUNNING|QUEUED:CANCELLED|RUNNING:COMPLETED|RUNNING:FAILED|RUNNING:CANCELLED|FAILED:RETRYING|RETRYING:QUEUED|RETRYING:RUNNING) ;;
-    "$NEW_STATUS:$NEW_STATUS") return 0 ;;
-    *) echo "Invalid state transition: $CURRENT -> $NEW_STATUS" >&2; return 1 ;;
+    "$NEW_STATUS:$NEW_STATUS") tjc_job_unlock "$LOCK"; return 0 ;;
+    *)
+      tjc_job_unlock "$LOCK"
+      echo "Invalid state transition: $CURRENT -> $NEW_STATUS" >&2
+      return 1
+      ;;
   esac
   NOW=$(tjc_job_now)
   if [ "$NEW_STATUS" = "RUNNING" ]; then
-    JSON=$(jq --arg status "$NEW_STATUS" --arg now "$NOW" '.status=$status | .updated_at=$now | .started_at=($now) | .attempts=(.attempts+1)' "$PATHNAME") || return 1
+    JSON=$(jq --arg status "$NEW_STATUS" --arg now "$NOW" '.status=$status | .updated_at=$now | .started_at=$now | .completed_at=null | .attempts=(.attempts+1)' "$PATHNAME")
   elif [ "$NEW_STATUS" = "COMPLETED" ] || [ "$NEW_STATUS" = "CANCELLED" ]; then
-    JSON=$(jq --arg status "$NEW_STATUS" --arg now "$NOW" --arg err "$ERROR_MSG" '.status=$status | .updated_at=$now | .completed_at=$now | .error=(if $err == "" then .error else $err end)' "$PATHNAME") || return 1
+    JSON=$(jq --arg status "$NEW_STATUS" --arg now "$NOW" --arg err "$ERROR_MSG" '.status=$status | .updated_at=$now | .completed_at=$now | .error=(if $err == "" then .error else $err end)' "$PATHNAME")
   elif [ "$NEW_STATUS" = "FAILED" ]; then
-    JSON=$(jq --arg status "$NEW_STATUS" --arg now "$NOW" --arg err "$ERROR_MSG" '.status=$status | .updated_at=$now | .completed_at=$now | .error=$err' "$PATHNAME") || return 1
+    JSON=$(jq --arg status "$NEW_STATUS" --arg now "$NOW" --arg err "$ERROR_MSG" '.status=$status | .updated_at=$now | .completed_at=$now | .error=$err' "$PATHNAME")
   else
-    JSON=$(jq --arg status "$NEW_STATUS" --arg now "$NOW" --arg err "$ERROR_MSG" '.status=$status | .updated_at=$now | .error=(if $err == "" then .error else $err end)' "$PATHNAME") || return 1
+    JSON=$(jq --arg status "$NEW_STATUS" --arg now "$NOW" --arg err "$ERROR_MSG" '.status=$status | .updated_at=$now | .error=(if $err == "" then .error else $err end)' "$PATHNAME")
   fi
+  RET=$?
+  if [ "$RET" -eq 0 ]; then
+    tjc_job_write_atomic "$PATHNAME" "$JSON"
+    RET=$?
+  fi
+  tjc_job_unlock "$LOCK"
+  return "$RET"
+}
+
+tjc_job_set_result() {
+  ID="${1:-}"
+  RESULT="${2:-}"
+  PATHNAME=$(tjc_job_path "$ID") || return 1
+  LOCK=$(tjc_job_lock "$ID") || return 1
+  if ! tjc_job_exists "$ID"; then
+    tjc_job_unlock "$LOCK"
+    return 1
+  fi
+  NOW=$(tjc_job_now)
+  JSON=$(jq --arg result "$RESULT" --arg now "$NOW" '.result=$result | .updated_at=$now' "$PATHNAME") || {
+    tjc_job_unlock "$LOCK"
+    return 1
+  }
   tjc_job_write_atomic "$PATHNAME" "$JSON"
+  RET=$?
+  tjc_job_unlock "$LOCK"
+  return "$RET"
 }
 
 tjc_job_cancel() {
