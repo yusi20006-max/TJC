@@ -1,12 +1,12 @@
-# TJC (Termux Jules CLI) v2.1.0
+# TJC (Termux Jules CLI) v2.1.1
 
 TJC is a secure, POSIX-shell-based CLI platform for Google Jules API workflows, compatible with standard Linux and Android via Termux.
 
 ## Stability Release
 
-**Current version: 2.1.0**
+**Current version: 2.1.1**
 
-TJC v2.1 is the production-hardening and stability release of the v2 automation architecture. The release prioritizes deterministic execution, persistence, security boundaries, recovery behavior, and verification over adding unrelated features.
+TJC v2.1.1 is the production-hardening and stability release of the v2 automation architecture, with release metadata aligned to the published patch release and CI verification covering the workflow validation dependency.
 
 ## Architecture
 
@@ -96,6 +96,6 @@ The installer packages the complete runtime tree. See [docs/INSTALLATION.md](doc
 
 ## Release
 
-Current version: **2.1.0**
+Current version: **2.1.1**
 
 See [CHANGELOG.md](CHANGELOG.md) for the complete release history.
