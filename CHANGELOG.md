@@ -1,5 +1,22 @@
 # Changelog
 
+## 2.1.2
+
+TJC v2.1.2 is the corrective patch release following the verified v2.1.1 release.
+
+### Release Corrections
+
+- Bumped repository version metadata to `2.1.2` so the installer and CLI version reporting match the new release.
+- Updated README release/version references to `2.1.2`.
+- Preserved the published `v2.1.1` tag as immutable.
+- Carries forward the verified v2.1.1 test and hardening baseline.
+
+### Verification Baseline
+
+- Workflow, scheduler, queue, MCP, provider, plugin, policy, audit, and installer regression coverage remains part of the release test suite.
+- Shell syntax checks and ShellCheck remain release gates.
+- CI provisions `yq` for workflow YAML validation.
+
 ## 2.1.1
 
 TJC v2.1.1 is the verified patch release following the v2.1 stability and production-hardening work.
