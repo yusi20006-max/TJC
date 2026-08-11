@@ -1,12 +1,18 @@
 #!/bin/sh
 set -eu
 
+unset TJC_CONFIG_DIR
+
 BASE_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 export HOME="$TMP/home"
 mkdir -p "$HOME"
 
+# shellcheck disable=SC1091
+. "$BASE_DIR/lib/colors.sh"
+# shellcheck disable=SC1091
+. "$BASE_DIR/lib/output.sh"
 # shellcheck disable=SC1091
 . "$BASE_DIR/lib/config.sh"
 # shellcheck disable=SC1091

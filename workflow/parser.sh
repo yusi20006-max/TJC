@@ -32,7 +32,7 @@ tjc_workflow_get_step_params() {
   FILE="${1:-}"
   INDEX="${2:-}"
   [ -n "$FILE" ] && [ -n "$INDEX" ] || return 1
-  yq -o=json -c ".steps[$INDEX] // {}" "$FILE" 2>/dev/null
+  yq -c ".steps[$INDEX] // {}" "$FILE" 2>/dev/null
 }
 
 tjc_workflow_get_step_dependencies() {
@@ -69,5 +69,5 @@ tjc_workflow_get_step_timeout() {
 
 tjc_workflow_get_variables() {
   FILE="${1:-}"
-  yq -o=json -c '.variables // {}' "$FILE" 2>/dev/null
+  yq -c '.variables // {}' "$FILE" 2>/dev/null
 }

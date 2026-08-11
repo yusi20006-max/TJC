@@ -20,10 +20,10 @@ tjc_workflow_validate() {
   [ -n "$NAME" ] && [ "$NAME" != null ] || { tjc_error "'name' is required."; return 1; }
   case "$NAME" in *'\n'*|*'\r'*) tjc_error 'Workflow name contains a newline.'; return 1;; esac
 
-  if ! yq -e '.steps | type == "!!seq" and length > 0' "$FILE" >/dev/null 2>&1; then
+  if ! yq -e '.steps | type == "array" and length > 0' "$FILE" >/dev/null 2>&1; then
     tjc_error "'steps' must be a non-empty array."; return 1
   fi
-  if ! yq -e '.variables // {} | type == "!!map"' "$FILE" >/dev/null 2>&1; then
+  if ! yq -e '.variables // {} | type == "object"' "$FILE" >/dev/null 2>&1; then
     tjc_error "'variables' must be a mapping."; return 1
   fi
 
@@ -82,7 +82,7 @@ tjc_workflow_validate() {
   # Validate the dependency graph against the full steps array. The previous
   # recursive expression evaluated `length` against each dependency value
   # instead of the root steps array, incorrectly rejecting valid workflows.
-  if ! yq -o=json '.steps' "$FILE" | jq -e '
+  if ! yq '.steps' "$FILE" | jq -e '
     . as $steps |
     def deps($i): ($steps[$i].depends_on // []) | map(if type == "number" then . else (try tonumber catch -1) end);
     def visit($i; $path):
