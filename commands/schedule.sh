@@ -18,15 +18,11 @@ tjc_schedule() {
       ID="${2:-}"
       FILE="${3:-}"
       EXPR="${4:-hourly}"
-
       if [ -z "$ID" ] || [ -z "$FILE" ]; then
         tjc_error "Usage: tjc schedule add <id> <workflow_file.yml> [schedule_expression]"
         return 1
       fi
-
-      if ! tjc_scheduler_add "$ID" "$FILE" "$EXPR"; then
-        return 1
-      fi
+      tjc_scheduler_add "$ID" "$FILE" "$EXPR"
       ;;
     list)
       SCHED_DIR=$(tjc_scheduler_dir)
@@ -34,11 +30,9 @@ tjc_schedule() {
         tjc_info "No schedules configured."
         return 0
       fi
-
       tjc_info "Active Schedules:"
       printf '%-15s %-30s %-15s %-20s %-12s\n' "ID" "WORKFLOW FILE" "INTERVAL" "LAST RUN" "LAST STATUS"
       printf '%s\n' "--------------------------------------------------------------------------------------------------"
-
       for JOB_FILE in "$SCHED_DIR"/*.json; do
         if [ -f "$JOB_FILE" ]; then
           ID=$(jq -r '.id' "$JOB_FILE")
@@ -47,38 +41,28 @@ tjc_schedule() {
           LAST_RUN=$(jq -r '.last_run // "Never"' "$JOB_FILE")
           LAST_STATUS=$(jq -r '.last_status // "Never"' "$JOB_FILE")
           SHORT_WF=$(basename "$WF_FILE")
-
           case "$LAST_STATUS" in
             COMPLETED) STATUS_COLOR="${TJC_COLOR_GREEN}${LAST_STATUS}${TJC_COLOR_RESET}" ;;
             FAILED) STATUS_COLOR="${TJC_COLOR_RED}${LAST_STATUS}${TJC_COLOR_RESET}" ;;
             *) STATUS_COLOR="${TJC_COLOR_YELLOW}${LAST_STATUS}${TJC_COLOR_RESET}" ;;
           esac
-
           printf '%-15s %-30s %-15s %-20s %-12b\n' "$ID" "$SHORT_WF" "$EXPR" "$LAST_RUN" "$STATUS_COLOR"
         fi
       done
       ;;
     remove)
       ID="${2:-}"
-      if [ -z "$ID" ]; then
-        tjc_error "Usage: tjc schedule remove <id>"
-        return 1
-      fi
-
-      if ! tjc_scheduler_remove "$ID"; then
-        return 1
-      fi
+      [ -n "$ID" ] || { tjc_error "Usage: tjc schedule remove <id>"; return 1; }
+      tjc_scheduler_remove "$ID"
       ;;
     run-pending)
-      if ! tjc_scheduler_run_pending; then
-        return 1
-      fi
+      tjc_scheduler_run_pending
       ;;
     run)
-      ID="${2:-}"
+      REQUESTED_ID="${2:-}"
       SCHED_DIR=$(tjc_scheduler_dir)
 
-      if [ -z "$ID" ]; then
+      if [ -z "$REQUESTED_ID" ]; then
         if [ -z "$(ls -A "$SCHED_DIR"/*.json 2>/dev/null)" ]; then
           tjc_info "No schedules found to run."
           return 0
@@ -87,39 +71,41 @@ tjc_schedule() {
         RET=0
         for JOB_FILE in "$SCHED_DIR"/*.json; do
           if [ -f "$JOB_FILE" ]; then
-            SCHEDULE_ID=$(jq -r '.id' "$JOB_FILE")
-            WF_FILE=$(jq -r '.workflow_file' "$JOB_FILE")
-            tjc_info "Manually triggering job: $SCHEDULE_ID ($WF_FILE)"
-            if tjc_workflow_execute "$WF_FILE"; then
-              tjc_scheduler_record_execution "$SCHEDULE_ID" "COMPLETED" || RET=1
+            # Keep the schedule identity in a dedicated variable. Workflow
+            # execution uses many global shell variables and may overwrite
+            # generic names such as ID/SCHEDULE_ID.
+            SCHEDULE_KEY=$(jq -r '.id' "$JOB_FILE")
+            SCHEDULE_WF_FILE=$(jq -r '.workflow_file' "$JOB_FILE")
+            tjc_info "Manually triggering job: $SCHEDULE_KEY ($SCHEDULE_WF_FILE)"
+            if tjc_workflow_execute "$SCHEDULE_WF_FILE"; then
+              if ! tjc_scheduler_record_execution "$SCHEDULE_KEY" "COMPLETED"; then RET=1; fi
             else
-              tjc_scheduler_record_execution "$SCHEDULE_ID" "FAILED" "Manual run failed" || true
+              tjc_scheduler_record_execution "$SCHEDULE_KEY" "FAILED" "Manual run failed" || true
               RET=1
             fi
           fi
         done
         return "$RET"
+      fi
+
+      if ! echo "$REQUESTED_ID" | grep -Eq '^[a-zA-Z0-9_-]+$'; then
+        tjc_error "Invalid schedule ID format."
+        return 1
+      fi
+      JOB_FILE="${SCHED_DIR}/${REQUESTED_ID}.json"
+      if [ ! -f "$JOB_FILE" ]; then
+        tjc_error "Schedule '$REQUESTED_ID' not found."
+        return 1
+      fi
+
+      SCHEDULE_KEY="$REQUESTED_ID"
+      SCHEDULE_WF_FILE=$(jq -r '.workflow_file' "$JOB_FILE")
+      tjc_info "Manually triggering job: $SCHEDULE_KEY ($SCHEDULE_WF_FILE)"
+      if tjc_workflow_execute "$SCHEDULE_WF_FILE"; then
+        tjc_scheduler_record_execution "$SCHEDULE_KEY" "COMPLETED" || return 1
       else
-        if ! echo "$ID" | grep -Eq '^[a-zA-Z0-9_-]+$'; then
-          tjc_error "Invalid schedule ID format."
-          return 1
-        fi
-
-        JOB_FILE="${SCHED_DIR}/${ID}.json"
-        if [ ! -f "$JOB_FILE" ]; then
-          tjc_error "Schedule '$ID' not found."
-          return 1
-        fi
-
-        SCHEDULE_ID="$ID"
-        WF_FILE=$(jq -r '.workflow_file' "$JOB_FILE")
-        tjc_info "Manually triggering job: $SCHEDULE_ID ($WF_FILE)"
-        if tjc_workflow_execute "$WF_FILE"; then
-          tjc_scheduler_record_execution "$SCHEDULE_ID" "COMPLETED" || return 1
-        else
-          tjc_scheduler_record_execution "$SCHEDULE_ID" "FAILED" "Manual run failed" || true
-          return 1
-        fi
+        tjc_scheduler_record_execution "$SCHEDULE_KEY" "FAILED" "Manual run failed" || true
+        return 1
       fi
       ;;
     history)
@@ -128,35 +114,28 @@ tjc_schedule() {
         tjc_error "Usage: tjc schedule history <id>"
         return 1
       fi
-
       if ! echo "$ID" | grep -Eq '^[a-zA-Z0-9_-]+$'; then
         tjc_error "Invalid schedule ID format."
         return 1
       fi
-
       HIST_DIR=$(tjc_scheduler_history_dir)
       HIST_FILE="${HIST_DIR}/history_${ID}.json"
-
       if [ ! -f "$HIST_FILE" ]; then
         tjc_info "No execution history found for schedule '$ID'."
         return 0
       fi
-
       tjc_info "Execution History for '$ID':"
       printf '%-25s %-15s %-30s\n' "TIMESTAMP" "STATUS" "ERROR/MESSAGE"
       printf '%s\n' "--------------------------------------------------------------------------------"
-
       jq -c '.[]' "$HIST_FILE" 2>/dev/null | while read -r HIST_ROW; do
         TIMESTAMP=$(echo "$HIST_ROW" | jq -r '.timestamp')
         STATUS=$(echo "$HIST_ROW" | jq -r '.status')
         ERROR=$(echo "$HIST_ROW" | jq -r '.error // ""')
-
         case "$STATUS" in
           COMPLETED) STATUS_COLOR="${TJC_COLOR_GREEN}${STATUS}${TJC_COLOR_RESET}" ;;
           FAILED) STATUS_COLOR="${TJC_COLOR_RED}${STATUS}${TJC_COLOR_RESET}" ;;
           *) STATUS_COLOR="${TJC_COLOR_YELLOW}${STATUS}${TJC_COLOR_RESET}" ;;
         esac
-
         printf '%-25s %-15b %-30s\n' "$TIMESTAMP" "$STATUS_COLOR" "$ERROR"
       done
       ;;
