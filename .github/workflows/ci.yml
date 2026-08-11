@@ -8,9 +8,14 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: tjc-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   tests:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -52,5 +57,3 @@ jobs:
           trap 'rm -rf "$tmp_home"' EXIT
           HOME="$tmp_home" ./install.sh
           command -v tjc >/dev/null 2>&1 || command -v jules >/dev/null 2>&1
-
-# Verification trigger for post-fix release-gate validation.
