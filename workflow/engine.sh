@@ -258,10 +258,22 @@ tjc_workflow_run_create_session() {
 }
 
 tjc_workflow_run_watch_session() {
-  PARAMS="$1"; SESS_DIR="$(tjc_config_dir)/sessions"; SESS_ID=$(echo "$PARAMS" | jq -r '.session_id // ""')
-  if [ -z "$SESS_ID" ] && [ -f "$SESS_DIR/last_session" ]; then SESS_ID=$(cat "$SESS_DIR/last_session"); fi
+  PARAMS="$1"
+  SESS_DIR="$(tjc_config_dir)/sessions"
+  SESS_ID=$(echo "$PARAMS" | jq -r '.session_id // ""')
+
+  if [ -n "$SESS_ID" ]; then
+    if [ ! -f "$SESS_DIR/last_session" ] || [ "$(cat "$SESS_DIR/last_session" 2>/dev/null)" != "$SESS_ID" ]; then
+      echo "Session '$SESS_ID' was not found." >&2
+      return 1
+    fi
+  elif [ -f "$SESS_DIR/last_session" ]; then
+    SESS_ID=$(cat "$SESS_DIR/last_session")
+  fi
+
   [ -n "$SESS_ID" ] || { echo 'No active session found.'; return 1; }
-  echo "Watching Jules session: $SESS_ID"; echo '[100%] Session is completed.'
+  echo "Watching Jules session: $SESS_ID"
+  echo '[100%] Session is completed.'
 }
 
 tjc_workflow_run_list_activities() {
