@@ -61,7 +61,12 @@ tjc_queue_claim() {
   STATUS=$(jq -r '.status' "$ITEM")
   if [ "$STATUS" != QUEUED ]; then rmdir "$LOCK"; return 1; fi
   NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-  jq --arg now "$NOW" '.status="RUNNING" | .started_at=$now' "$ITEM" >"$ITEM.tmp" && mv "$ITEM.tmp" "$ITEM" || { rmdir "$LOCK"; return 1; }
+  if jq --arg now "$NOW" '.status="RUNNING" | .started_at=$now' "$ITEM" >"$ITEM.tmp" && mv "$ITEM.tmp" "$ITEM"; then
+    :
+  else
+    rmdir "$LOCK"
+    return 1
+  fi
   printf '%s\n' "$LOCK"
 }
 
@@ -96,6 +101,7 @@ tjc_queue_run() {
   echo "$MAX" | grep -Eq '^[1-9][0-9]*$' || { echo 'Worker count must be a positive integer.' >&2; return 1; }
   [ "$MAX" -le 16 ] || { echo 'Worker count cannot exceed 16.' >&2; return 1; }
   PIDS=""; STARTED=0
+  # shellcheck disable=SC2329 # invoked indirectly by the signal trap below
   cleanup() { for PID in $PIDS; do kill "$PID" 2>/dev/null || true; done; }
   trap cleanup INT TERM HUP
   while [ "$STARTED" -lt "$MAX" ]; do tjc_queue_worker_once & PIDS="$PIDS $!"; STARTED=$((STARTED + 1)); done
