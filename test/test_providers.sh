@@ -22,7 +22,7 @@ CODE=$?
 set -e
 if [ "$CODE" -ne 0 ]; then RESULT=0; else RESULT=1; fi
 ok "$RESULT" "missing key rejected"
-if grep -q 'Invalid Jules API key' "$OUTFILE"; then RESULT=0; else RESULT=1; fi
+if grep -q 'Jules API key is not configured' "$OUTFILE"; then RESULT=0; else RESULT=1; fi
 ok "$RESULT" "safe authentication error"
 
 export JULES_API_KEY='test-secret-value'
