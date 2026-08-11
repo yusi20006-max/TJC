@@ -2,7 +2,7 @@
 
 set -eu
 
-BASE_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+BASE_DIR=$(cd -- "$(dirname -- "$0")/.." && pwd)
 export BASE_DIR
 export TJC_CONFIG_DIR
 TJC_CONFIG_DIR=$(mktemp -d)
