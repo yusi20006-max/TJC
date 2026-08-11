@@ -51,7 +51,9 @@ mcp_call_tool() {
     tjc_create_session)
       mcp_allowed_execution || { mcp_error "$ID" -32003 'Execution tools are disabled. Set TJC_MCP_ALLOW_EXECUTION=true for an explicitly trusted local server.'; return; }
       PROMPT=$(echo "$ARGS" | jq -r '.prompt // empty'); SOURCE=$(echo "$ARGS" | jq -r '.source // empty'); BRANCH=$(echo "$ARGS" | jq -r '.branch // "main"'); TITLE=$(echo "$ARGS" | jq -r '.title // "TJC MCP Session"')
-      [ -n "$PROMPT" ] && [ -n "$SOURCE" ] || { mcp_error "$ID" -32602 'prompt and source are required.'; return; }
+      if [ -z "$PROMPT" ] || [ -z "$SOURCE" ]; then
+        mcp_error "$ID" -32602 'prompt and source are required.'; return
+      fi
       case "$SOURCE" in sources/github/*) ;; *) mcp_error "$ID" -32602 'source must be a Jules source identifier.'; return;; esac
       BODY=$(jq -cn --arg prompt "$PROMPT" --arg source "$SOURCE" --arg branch "$BRANCH" --arg title "$TITLE" '{prompt:$prompt,sourceContext:{source:$source,githubRepoContext:{startingBranch:$branch}},automationMode:"AUTO_CREATE_PR",title:$title}')
       tjc_provider_load || { mcp_error "$ID" -32001 'Provider initialization failed.'; return; }
@@ -69,7 +71,7 @@ mcp_call_tool() {
       JOB_ID=$(echo "$ARGS" | jq -r '.id // empty'); DESC=$(echo "$ARGS" | jq -r '.description // "MCP Job"')
       echo "$JOB_ID" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$' || { mcp_error "$ID" -32602 'Invalid Job ID.'; return; }
       tjc_job_create "$JOB_ID" "$DESC" >/dev/null 2>&1 || { mcp_error "$ID" -32004 'Unable to create Job.'; return; }
-      mcp_response "$ID" '{content:[{type:"text",text:"Job created."}]}' ;;
+      mcp_response "$ID" '{"content":[{"type":"text","text":"Job created."}]}' ;;
     tjc_get_job)
       JOB_ID=$(echo "$ARGS" | jq -r '.id // empty'); echo "$JOB_ID" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$' || { mcp_error "$ID" -32602 'Invalid Job ID.'; return; }
       RESULT=$(tjc_job_get "$JOB_ID" 2>&1) || { mcp_error "$ID" -32004 'Job not found.'; return; }
@@ -78,11 +80,11 @@ mcp_call_tool() {
       mcp_allowed_execution || { mcp_error "$ID" -32003 'Execution tools are disabled.'; return; }
       JOB_ID=$(echo "$ARGS" | jq -r '.id // empty'); echo "$JOB_ID" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$' || { mcp_error "$ID" -32602 'Invalid Job ID.'; return; }
       tjc_job_cancel "$JOB_ID" >/dev/null 2>&1 || { mcp_error "$ID" -32004 'Unable to cancel Job.'; return; }
-      mcp_response "$ID" '{content:[{type:"text",text:"Job cancelled."}]}' ;;
+      mcp_response "$ID" '{"content":[{"type":"text","text":"Job cancelled."}]}' ;;
     tjc_validate_workflow)
       PATH_VALUE=$(echo "$ARGS" | jq -r '.path // empty'); mcp_validate_path "$PATH_VALUE" || { mcp_error "$ID" -32602 'Invalid or inaccessible workflow path.'; return; }
       tjc_workflow_validate "$PATH_VALUE" >/dev/null 2>&1 || { mcp_error "$ID" -32602 'Workflow validation failed.'; return; }
-      mcp_response "$ID" '{content:[{type:"text",text:"Workflow is valid."}]}' ;;
+      mcp_response "$ID" '{"content":[{"type":"text","text":"Workflow is valid."}]}' ;;
     tjc_run_workflow)
       mcp_allowed_execution || { mcp_error "$ID" -32003 'Execution tools are disabled.'; return; }
       PATH_VALUE=$(echo "$ARGS" | jq -r '.path // empty'); mcp_validate_path "$PATH_VALUE" || { mcp_error "$ID" -32602 'Invalid or inaccessible workflow path.'; return; }
@@ -97,7 +99,7 @@ mcp_handle() {
   REQUEST="$1"; ID=$(echo "$REQUEST" | jq -c '.id // null'); METHOD=$(echo "$REQUEST" | jq -r '.method // empty')
   case "$METHOD" in
     initialize)
-      mcp_response "$ID" '{protocolVersion:"2025-06-18",capabilities:{tools:{}},serverInfo:{name:"tjc-mcp",version:"2.0.0"}}' ;;
+      mcp_response "$ID" '{"protocolVersion":"2025-06-18","capabilities":{"tools":{}},"serverInfo":{"name":"tjc-mcp","version":"2.0.0"}}' ;;
     notifications/initialized) : ;;
     tools/list) mcp_response "$ID" "$(mcp_tool_list)" ;;
     tools/call)

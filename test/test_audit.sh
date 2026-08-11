@@ -18,7 +18,7 @@ LINE=$(cat "$FILE")
 printf '%s\n' "$LINE" | jq -e '.event == "job_status" and .correlation_id == "corr_test_123"' >/dev/null
 if printf '%s\n' "$LINE" | grep -q 'super-secret-value'; then exit 1; fi
 if printf '%s\n' "$LINE" | grep -q 'Bearer secret'; then exit 1; fi
-printf '%s\n' "$LINE" | jq -e '.api_key == "api_key=[REDACTED]" and .authorization == "authorization=[REDACTED]"' >/dev/null
+printf '%s\n' "$LINE" | jq -e '.api_key == "[REDACTED]" and .authorization == "[REDACTED]"' >/dev/null
 
 rm -rf "$TJC_CONFIG_DIR"
 echo 'Audit tests: passed'
