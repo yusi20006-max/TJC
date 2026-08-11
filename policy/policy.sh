@@ -27,6 +27,7 @@ tjc_policy_allow() {
   POLICY_FILE_PATH=$(tjc_policy_file)
   [ -f "$POLICY_FILE_PATH" ] || { tjc_policy_default "$OP"; return $?; }
   yq . "$POLICY_FILE_PATH" >/dev/null 2>&1 || return 1
+  # shellcheck disable=SC2016 # $op is intentionally a jq --arg variable.
   DECISION=$(yq -r --arg op "$OP" '.operations[$op] // .defaults[$op] // .defaults.default // "deny"' "$POLICY_FILE_PATH" 2>/dev/null)
   [ "$DECISION" = allow ]
 }
