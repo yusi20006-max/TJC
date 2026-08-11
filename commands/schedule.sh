@@ -22,7 +22,11 @@ tjc_schedule() {
         tjc_error "Usage: tjc schedule add <id> <workflow_file.yml> [schedule_expression]"
         return 1
       fi
+      # Preserve the scheduler storage layer's validation result. Returning 0
+      # here unconditionally would turn rejected schedules into apparent
+      # successes for callers and automated tests.
       tjc_scheduler_add "$ID" "$FILE" "$EXPR"
+      return $?
       ;;
     list)
       SCHED_DIR=$(tjc_scheduler_dir)
@@ -151,5 +155,4 @@ tjc_schedule() {
       return 1
       ;;
   esac
-  return 0
 }
