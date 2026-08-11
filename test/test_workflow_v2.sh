@@ -18,6 +18,19 @@ FAIL=0
 assert_ok() { if [ "$1" -eq 0 ]; then PASS=$((PASS+1)); else echo "FAIL: $2"; FAIL=$((FAIL+1)); fi; }
 assert_fail() { if [ "$1" -ne 0 ]; then PASS=$((PASS+1)); else echo "FAIL: $2"; FAIL=$((FAIL+1)); fi; }
 
+# Keep the workflow test deterministic and offline. The production get_pr step
+# uses curl against GitHub; the test substitutes a tiny local response fixture
+# so the suite does not depend on network availability or API rate limits.
+MOCK_BIN="$TJC_CONFIG_DIR/mock-bin"
+mkdir -p "$MOCK_BIN"
+cat >"$MOCK_BIN/curl" <<'EOF'
+#!/bin/sh
+printf '%s\n' '{"title":"Mock PR #23","number":23}'
+EOF
+chmod 700 "$MOCK_BIN/curl"
+PATH="$MOCK_BIN:$PATH"
+export PATH
+
 WF="$TJC_CONFIG_DIR/v2.yml"
 cat >"$WF" <<'YAML'
 name: "V2 Workflow"
