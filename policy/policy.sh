@@ -8,8 +8,8 @@ tjc_policy_file() {
 }
 
 tjc_policy_valid_path() {
-  PATH_VALUE=$(tjc_policy_file)
-  case "$PATH_VALUE" in *..*|*';'*|*'&'*|*'|'*|*'`'*|*'$'*) return 1;; esac
+  POLICY_PATH=$(tjc_policy_file)
+  case "$POLICY_PATH" in *..*|*';'*|*'&'*|*'|'*|*'`'*|*'$'*) return 1;; esac
 }
 
 tjc_policy_default() {
@@ -24,10 +24,10 @@ tjc_policy_default() {
 tjc_policy_allow() {
   OP="${1:-}"; [ -n "$OP" ] || return 1
   tjc_policy_valid_path || return 1
-  FILE=$(tjc_policy_file)
-  [ -f "$FILE" ] || { tjc_policy_default "$OP"; return $?; }
-  yq . "$FILE" >/dev/null 2>&1 || return 1
-  DECISION=$(yq -r --arg op "$OP" '.operations[$op] // .defaults[$op] // .defaults.default // "deny"' "$FILE" 2>/dev/null)
+  POLICY_FILE_PATH=$(tjc_policy_file)
+  [ -f "$POLICY_FILE_PATH" ] || { tjc_policy_default "$OP"; return $?; }
+  yq . "$POLICY_FILE_PATH" >/dev/null 2>&1 || return 1
+  DECISION=$(yq -r --arg op "$OP" '.operations[$op] // .defaults[$op] // .defaults.default // "deny"' "$POLICY_FILE_PATH" 2>/dev/null)
   [ "$DECISION" = allow ]
 }
 
@@ -40,9 +40,9 @@ tjc_policy_require() {
 
 tjc_policy_init() {
   tjc_ensure_config_dir || return 1
-  FILE=$(tjc_policy_file)
-  [ -f "$FILE" ] && return 0
-  cat >"$FILE" <<'YAML'
+  POLICY_FILE_PATH=$(tjc_policy_file)
+  [ -f "$POLICY_FILE_PATH" ] && return 0
+  cat >"$POLICY_FILE_PATH" <<'YAML'
 version: 1
 defaults:
   default: deny
@@ -60,5 +60,5 @@ operations:
   filesystem.write: deny
   plugin.execute: deny
 YAML
-  chmod 600 "$FILE"
+  chmod 600 "$POLICY_FILE_PATH"
 }
