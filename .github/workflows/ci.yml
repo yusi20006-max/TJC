@@ -52,3 +52,5 @@ jobs:
           trap 'rm -rf "$tmp_home"' EXIT
           HOME="$tmp_home" ./install.sh
           command -v tjc >/dev/null 2>&1 || command -v jules >/dev/null 2>&1
+
+# Verification trigger for post-fix release-gate validation.
