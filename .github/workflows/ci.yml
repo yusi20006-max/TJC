@@ -24,7 +24,7 @@ jobs:
         run: |
           set -e
           sudo apt-get update
-          sudo apt-get install -y shellcheck jq
+          sudo apt-get install -y shellcheck jq yq
 
       - name: Shell syntax check
         run: |
@@ -56,4 +56,6 @@ jobs:
           tmp_home="$(mktemp -d)"
           trap 'rm -rf "$tmp_home"' EXIT
           HOME="$tmp_home" ./install.sh
+          export PATH="$tmp_home/.local/bin:$PATH"
           command -v tjc >/dev/null 2>&1 || command -v jules >/dev/null 2>&1
+          tjc --version
