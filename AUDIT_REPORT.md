@@ -1,8 +1,8 @@
-# TJC v2 Final Production Audit
+# TJC v2.1 Final Production Audit
 
 ## Scope
 
-Repository-wide architectural and security review for the TJC v2 release candidate.
+Repository-wide architectural, integration, security, reliability, documentation, and release-readiness review for TJC v2.1.
 
 ## Architecture Verified
 
@@ -15,11 +15,23 @@ Repository-wide architectural and security review for the TJC v2 release candida
 - Local MCP stdio server
 - Central Policy Engine
 - Structured Observability/Audit layer
-- Existing Plugin extension boundary
+- Plugin extension boundary
+- Installer and runtime packaging
 
-## Execution Architecture
+## Integration Matrix
 
-Jobs provide persistent lifecycle state. Workflows provide safe orchestration. Queue workers provide bounded parallel execution. Providers isolate external API details. MCP exposes controlled external-agent tools. Policy provides authorization. Audit provides structured cross-cutting visibility.
+The v2.1 architecture is intended to preserve these boundaries:
+
+- CLI ↔ Jobs
+- Jobs ↔ Queue
+- Queue ↔ Workflows
+- Workflows ↔ Scheduler
+- execution paths ↔ Policy
+- execution paths ↔ Observability/Audit
+- Provider ↔ Jobs/Workflows
+- MCP ↔ Policy ↔ internal operations
+- Plugin ↔ Policy ↔ CLI
+- Installer ↔ runtime tree
 
 ## Security Review
 
@@ -33,15 +45,15 @@ MCP uses local stdio JSON-RPC transport. Mutation/execution operations are expli
 
 ### Policy
 
-Unknown operations are denied by default. MCP execution, plugin execution, and filesystem writes are restrictive by default. Local workflow/Job/Queue operations retain explicit allow entries for backward compatibility.
+Unknown operations are denied by default. MCP execution, plugin execution, and filesystem writes are restrictive by default. Local workflow, Job, and Queue operations retain explicit allow entries where required for compatibility.
 
 ### Secrets
 
 Jules authentication uses the `X-Goog-Api-Key` header. API credentials are not intentionally stored in Job records, workflow reports, policy files, or audit metadata. Sensitive audit field names are redacted before persistence.
 
-### Filesystem
+### Filesystem and State
 
-Persistent state uses restrictive permissions. Job state uses atomic writes and per-Job locking. Queue claims use atomic filesystem locks and bounded worker counts.
+Persistent state uses restrictive permissions. Job state uses atomic writes and per-Job locking. Queue claims use atomic filesystem locks and bounded worker counts. Recovery behavior includes stale-lock and corrupted-state handling where implemented by the Job subsystem.
 
 ## Reliability Review
 
@@ -54,7 +66,7 @@ Persistent state uses restrictive permissions. Job state uses atomic writes and 
 
 ## Documentation
 
-The v2 architecture is documented in:
+The v2.1 architecture is documented in:
 
 - `docs/ARCHITECTURE_V2.md`
 - `docs/JOBS.md`
@@ -64,41 +76,39 @@ The v2 architecture is documented in:
 - `docs/MCP.md`
 - `docs/OBSERVABILITY.md`
 - `docs/POLICIES.md`
+- `docs/INSTALLATION.md`
+- `docs/PLUGINS.md`
+- `docs/TESTING.md`
+- `docs/V2_1_HARDENING.md`
 
 ## Test Coverage
 
-Dedicated test suites exist for:
+Dedicated suites exist for the major v2 boundaries, including Job System, Workflow, Queue, Provider, MCP, Audit, Policy, Plugin, Installer, and release/CI verification.
 
-- Job System
-- Workflow v2
-- Queue
-- Provider layer
-- MCP
-- Audit
-- Policy
+## Repository-Only Verification Limitation
 
-## Static Verification Limitation
+The GitHub repository connector used for this audit does not provide a local Termux/Linux runtime. Therefore this audit does **not** claim that the complete shell test suite, ShellCheck, installer smoke test, or Termux runtime verification was executed during this repository-editing session.
 
-The GitHub repository connector used for this implementation does not provide a local Termux runtime. Therefore this audit does **not** claim that the complete shell test suite or ShellCheck was executed during this repository-editing session.
+Those checks must be treated as release gates and executed by GitHub Actions and/or a real Termux/Linux environment before declaring the release fully runtime-verified.
 
-The tests and documentation are committed for execution by the repository's normal Termux/Linux verification process.
+## Documentation Consistency Check
 
-## Security Search
-
-Repository commit search was checked for the known credential marker `JULES_API_KEY` and the test secret marker `test-secret`; neither was found in commit search results.
+The repository identifies the current release as **TJC v2.1.0** in `README.md` and `CHANGELOG.md`. This report has been aligned to v2.1.0; the previous v2.0.0 Release Candidate wording was stale documentation and has been removed.
 
 ## Release Assessment
 
-**Architecture:** Complete
+**Architecture:** Implemented
 
-**Security boundaries:** Complete
+**Security boundaries:** Implemented and documented
 
-**Documentation:** Complete
+**Documentation:** Aligned to v2.1.0
 
 **Test suites:** Present
 
+**Repository-only static review:** Completed
+
 **Local runtime execution:** Not available in this connector environment
 
-**Release status:** v2.0.0 Release Candidate
+**Release status:** **Release candidate pending runtime/CI gates**
 
-The repository is ready for final runtime verification. A claim of fully executed ShellCheck/test results is intentionally not made without an actual Termux/Linux execution environment.
+TJC v2.1.0 should be considered production-stable only after the repository's automated gates and a real Termux/Linux verification path confirm the remaining runtime acceptance criteria from Issue #47.
