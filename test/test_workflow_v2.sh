@@ -51,11 +51,23 @@ set -e
 assert_ok "$CODE" "v2 workflow executes"
 
 REPORT=$(find "$TJC_CONFIG_DIR/workflows/reports" -name 'report_*.json' -type f | head -n 1)
-[ -n "$REPORT" ] && assert_ok 0 "execution report exists" || assert_fail 0 "execution report exists"
+if [ -n "$REPORT" ]; then
+  assert_ok 0 "execution report exists"
+else
+  assert_fail 0 "execution report exists"
+fi
 
 if [ -n "$REPORT" ]; then
-  assert_ok "$(jq -e '.status == "COMPLETED"' "$REPORT" >/dev/null; echo $?)" "workflow completed"
-  assert_ok "$(jq -e '.steps[1].attempts >= 1' "$REPORT" >/dev/null; echo $?)" "attempt count recorded"
+  if jq -e '.status == "COMPLETED"' "$REPORT" >/dev/null; then
+    assert_ok 0 "workflow completed"
+  else
+    assert_fail 1 "workflow completed"
+  fi
+  if jq -e '.steps[1].attempts >= 1' "$REPORT" >/dev/null; then
+    assert_ok 0 "attempt count recorded"
+  else
+    assert_fail 1 "attempt count recorded"
+  fi
 fi
 
 BAD="$TJC_CONFIG_DIR/cycle.yml"
