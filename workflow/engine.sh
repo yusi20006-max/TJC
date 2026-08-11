@@ -186,7 +186,7 @@ tjc_workflow_execute() {
     while [ "$ATTEMPT" -le "$RETRIES" ]; do
       ATTEMPT=$((ATTEMPT + 1))
       OUTFILE="$REPORT_FILE.step.$INDEX.$ATTEMPT"
-      tjc_log_info "Executing workflow step $INDEX ($TYPE), attempt $ATTEMPT."
+      tjc_log_info "Executing Step $INDEX ($TYPE), attempt $ATTEMPT."
       if tjc_workflow_run_step "$TYPE" "$PARAMS" "$TIMEOUT" "$OUTFILE"; then
         STEP_SUCCESS=0
         break
@@ -206,6 +206,19 @@ tjc_workflow_execute() {
       break
     fi
   done
+
+  # A failed step halts the workflow; remaining pending steps are explicitly
+  # marked CANCELLED so the persisted report has a complete terminal state.
+  if [ "$FINAL_STATUS" = "FAILED" ]; then
+    INDEX=0
+    while [ "$INDEX" -lt "$STEPS_COUNT" ]; do
+      STATUS=$(jq -r ".steps[$INDEX].status" "$REPORT_FILE")
+      if [ "$STATUS" = "PENDING" ]; then
+        jq --argjson idx "$INDEX" '.steps[$idx].status="CANCELLED" | .steps[$idx].error="Cancelled because a previous workflow step failed"' "$REPORT_FILE" >"$REPORT_FILE.tmp" && mv "$REPORT_FILE.tmp" "$REPORT_FILE"
+      fi
+      INDEX=$((INDEX + 1))
+    done
+  fi
 
   ENDED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   jq --arg status "$FINAL_STATUS" --arg ended "$ENDED_AT" '.status=$status | .ended_at=$ended' "$REPORT_FILE" >"$REPORT_FILE.tmp" && mv "$REPORT_FILE.tmp" "$REPORT_FILE"
