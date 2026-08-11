@@ -28,7 +28,7 @@ tjc_workflow() {
       case "$REPORT" in *..*|*';'*|*'&'*|*'|'*|*'`'*|*'$'*) tjc_error 'Unsafe report path.'; return 1;; esac
       [ -f "$REPORT" ] || { tjc_error "Report not found: $REPORT"; return 1; }
       FILE=$(jq -r '.file // ""' "$REPORT")
-      [ -n "$FILE" ] && [ -f "$FILE" ] || { tjc_error 'The original workflow file is unavailable.'; return 1; }
+      [ -f "$FILE" ] || { tjc_error 'The original workflow file is unavailable.'; return 1; }
       tjc_workflow_execute "$FILE" "$REPORT"
       ;;
     reports|list)

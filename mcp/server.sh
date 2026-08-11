@@ -51,7 +51,9 @@ mcp_call_tool() {
     tjc_create_session)
       mcp_allowed_execution || { mcp_error "$ID" -32003 'Execution tools are disabled. Set TJC_MCP_ALLOW_EXECUTION=true for an explicitly trusted local server.'; return; }
       PROMPT=$(echo "$ARGS" | jq -r '.prompt // empty'); SOURCE=$(echo "$ARGS" | jq -r '.source // empty'); BRANCH=$(echo "$ARGS" | jq -r '.branch // "main"'); TITLE=$(echo "$ARGS" | jq -r '.title // "TJC MCP Session"')
-      [ -n "$PROMPT" ] && [ -n "$SOURCE" ] || { mcp_error "$ID" -32602 'prompt and source are required.'; return; }
+      if [ -z "$PROMPT" ] || [ -z "$SOURCE" ]; then
+        mcp_error "$ID" -32602 'prompt and source are required.'; return
+      fi
       case "$SOURCE" in sources/github/*) ;; *) mcp_error "$ID" -32602 'source must be a Jules source identifier.'; return;; esac
       BODY=$(jq -cn --arg prompt "$PROMPT" --arg source "$SOURCE" --arg branch "$BRANCH" --arg title "$TITLE" '{prompt:$prompt,sourceContext:{source:$source,githubRepoContext:{startingBranch:$branch}},automationMode:"AUTO_CREATE_PR",title:$title}')
       tjc_provider_load || { mcp_error "$ID" -32001 'Provider initialization failed.'; return; }

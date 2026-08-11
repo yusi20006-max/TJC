@@ -17,7 +17,9 @@ tjc_workflow_validate() {
   done
 
   NAME=$(tjc_workflow_get_name "$FILE")
-  [ -n "$NAME" ] && [ "$NAME" != null ] || { tjc_error "'name' is required."; return 1; }
+  if [ -z "$NAME" ] || [ "$NAME" = null ]; then
+    tjc_error "'name' is required."; return 1
+  fi
   case "$NAME" in *'\n'*|*'\r'*) tjc_error 'Workflow name contains a newline.'; return 1;; esac
 
   if ! yq -e '.steps | type == "array" and length > 0' "$FILE" >/dev/null 2>&1; then
@@ -32,7 +34,9 @@ tjc_workflow_validate() {
   while [ "$INDEX" -lt "$STEPS_COUNT" ]; do
     PARAMS=$(tjc_workflow_get_step_params "$FILE" "$INDEX")
     TYPE=$(tjc_workflow_get_step_type "$FILE" "$INDEX")
-    [ -n "$TYPE" ] && [ "$TYPE" != null ] || { tjc_error "Step $INDEX is missing 'type'."; return 1; }
+    if [ -z "$TYPE" ] || [ "$TYPE" = null ]; then
+      tjc_error "Step $INDEX is missing 'type'."; return 1
+    fi
 
     case "$TYPE" in
       create_session) ALLOWED='type session_name' ;;

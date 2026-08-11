@@ -54,7 +54,9 @@ tjc_queue_remove() {
   STATUS=$(jq -r '.status' "$ITEM"); [ "$STATUS" = QUEUED ] || { echo 'Only QUEUED items can be removed.' >&2; return 1; }
   JOB_ID=$(jq -r '.job_id' "$ITEM")
   rm -f "$ITEM"
-  [ -n "$JOB_ID" ] && tjc_job_cancel "$JOB_ID" >/dev/null 2>&1 || true
+  if [ -n "$JOB_ID" ]; then
+    tjc_job_cancel "$JOB_ID" >/dev/null 2>&1 || true
+  fi
 }
 
 tjc_queue_claim() {
@@ -107,7 +109,7 @@ tjc_queue_run() {
   echo "$MAX" | grep -Eq '^[1-9][0-9]*$' || { echo 'Worker count must be a positive integer.' >&2; return 1; }
   [ "$MAX" -le 16 ] || { echo 'Worker count cannot exceed 16.' >&2; return 1; }
   PIDS=""; STARTED=0
-  # shellcheck disable=SC2329 # invoked indirectly by the signal trap below
+  # shellcheck disable=SC2329,SC2317 # invoked indirectly by the signal trap below
   cleanup() { for PID in $PIDS; do kill "$PID" 2>/dev/null || true; done; }
   trap cleanup INT TERM HUP
   while [ "$STARTED" -lt "$MAX" ]; do tjc_queue_worker_once & PIDS="$PIDS $!"; STARTED=$((STARTED + 1)); done
