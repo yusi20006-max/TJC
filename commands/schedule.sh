@@ -46,8 +46,6 @@ tjc_schedule() {
           EXPR=$(jq -r '.schedule_expression' "$JOB_FILE")
           LAST_RUN=$(jq -r '.last_run // "Never"' "$JOB_FILE")
           LAST_STATUS=$(jq -r '.last_status // "Never"' "$JOB_FILE")
-
-          # Shorten filepath for display
           SHORT_WF=$(basename "$WF_FILE")
 
           case "$LAST_STATUS" in
@@ -72,7 +70,6 @@ tjc_schedule() {
       fi
       ;;
     run-pending)
-      # Run any scheduled workflows that are due (automatic execution mode)
       if ! tjc_scheduler_run_pending; then
         return 1
       fi
@@ -82,7 +79,6 @@ tjc_schedule() {
       SCHED_DIR=$(tjc_scheduler_dir)
 
       if [ -z "$ID" ]; then
-        # Run all jobs immediately
         if [ -z "$(ls -A "$SCHED_DIR"/*.json 2>/dev/null)" ]; then
           tjc_info "No schedules found to run."
           return 0
@@ -91,20 +87,19 @@ tjc_schedule() {
         RET=0
         for JOB_FILE in "$SCHED_DIR"/*.json; do
           if [ -f "$JOB_FILE" ]; then
-            J_ID=$(jq -r '.id' "$JOB_FILE")
+            SCHEDULE_ID=$(jq -r '.id' "$JOB_FILE")
             WF_FILE=$(jq -r '.workflow_file' "$JOB_FILE")
-            tjc_info "Manually triggering job: $J_ID ($WF_FILE)"
+            tjc_info "Manually triggering job: $SCHEDULE_ID ($WF_FILE)"
             if tjc_workflow_execute "$WF_FILE"; then
-              tjc_scheduler_record_execution "$J_ID" "COMPLETED"
+              tjc_scheduler_record_execution "$SCHEDULE_ID" "COMPLETED" || RET=1
             else
-              tjc_scheduler_record_execution "$J_ID" "FAILED" "Manual run failed"
+              tjc_scheduler_record_execution "$SCHEDULE_ID" "FAILED" "Manual run failed" || true
               RET=1
             fi
           fi
         done
         return "$RET"
       else
-        # Run specific job immediately
         if ! echo "$ID" | grep -Eq '^[a-zA-Z0-9_-]+$'; then
           tjc_error "Invalid schedule ID format."
           return 1
@@ -116,12 +111,13 @@ tjc_schedule() {
           return 1
         fi
 
+        SCHEDULE_ID="$ID"
         WF_FILE=$(jq -r '.workflow_file' "$JOB_FILE")
-        tjc_info "Manually triggering job: $ID ($WF_FILE)"
+        tjc_info "Manually triggering job: $SCHEDULE_ID ($WF_FILE)"
         if tjc_workflow_execute "$WF_FILE"; then
-          tjc_scheduler_record_execution "$ID" "COMPLETED"
+          tjc_scheduler_record_execution "$SCHEDULE_ID" "COMPLETED" || return 1
         else
-          tjc_scheduler_record_execution "$ID" "FAILED" "Manual run failed"
+          tjc_scheduler_record_execution "$SCHEDULE_ID" "FAILED" "Manual run failed" || true
           return 1
         fi
       fi
@@ -172,7 +168,7 @@ tjc_schedule() {
       echo "  tjc schedule remove <id>                            Remove a schedule"
       echo "  tjc schedule run [id]                               Run schedule(s) immediately"
       echo "  tjc schedule run-pending                            Run pending/due schedules"
-      echo "  tjc schedule history <id>                           Show job execution history"
+      echo "  tjc schedule history <id>                           Show execution history"
       return 1
       ;;
   esac
