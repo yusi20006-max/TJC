@@ -9,12 +9,12 @@
 . "${BASE_DIR}/workflow/engine.sh"
 
 mcp_response() {
-  ID="$1"; RESULT="$2"
+  ID="${1:-null}"; RESULT="${2:-null}"
   jq -cn --argjson id "$ID" --argjson result "$RESULT" '{jsonrpc:"2.0",id:$id,result:$result}'
 }
 
 mcp_error() {
-  ID="$1"; CODE="$2"; MESSAGE="$3"
+  ID="${1:-null}"; CODE="$2"; MESSAGE="$3"
   jq -cn --argjson id "$ID" --argjson code "$CODE" --arg message "$MESSAGE" '{jsonrpc:"2.0",id:$id,error:{code:$code,message:$message}}'
 }
 
