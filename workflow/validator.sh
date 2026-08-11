@@ -79,14 +79,18 @@ tjc_workflow_validate() {
     INDEX=$((INDEX + 1))
   done
 
+  # Validate the dependency graph against the full steps array. The previous
+  # recursive expression evaluated `length` against each dependency value
+  # instead of the root steps array, incorrectly rejecting valid workflows.
   if ! yq -o=json '.steps' "$FILE" | jq -e '
-    def deps($i): (.[$i].depends_on // []) | map(if type == "number" then . else (try tonumber catch -1) end);
+    . as $steps |
+    def deps($i): ($steps[$i].depends_on // []) | map(if type == "number" then . else (try tonumber catch -1) end);
     def visit($i; $path):
-      if ($i < 0 or $i >= length) then false
+      if ($i < 0 or $i >= ($steps | length)) then false
       elif ($path | index($i)) != null then false
       else all(deps($i)[]; visit(. ; ($path + [$i])))
       end;
-    all(range(0; length); visit(. ; []))
+    all(range(0; ($steps | length)); visit(. ; []))
   ' >/dev/null 2>&1; then
     tjc_error 'Workflow contains an invalid dependency reference or cycle.'
     return 1
